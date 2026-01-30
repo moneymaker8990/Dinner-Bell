@@ -4,6 +4,7 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import 'react-native-reanimated';
 
 import { DeepLinkHandler } from '@/components/DeepLinkHandler';
@@ -59,6 +60,19 @@ export default function RootLayout() {
   useEffect(() => {
     if (error) throw error;
   }, [error]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const reason = e?.reason;
+      if (reason?.name === 'AbortError' && typeof reason?.message === 'string' && reason.message.includes('aborted')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => window.removeEventListener('unhandledrejection', onRejection);
+  }, []);
 
   useEffect(() => {
     if (loaded) {

@@ -1,5 +1,4 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { addNotificationResponseListener, getLastNotificationResponse, registerForPushNotificationsAsync, savePushToken } from '@/lib/notifications';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
@@ -13,42 +12,51 @@ export function NotificationHandler() {
 
   useEffect(() => {
     if (isWeb || !user) return;
-    registerForPushNotificationsAsync().then((token) => {
-      if (token) savePushToken(token);
+    import('@/lib/notifications').then(({ registerForPushNotificationsAsync, savePushToken }) => {
+      registerForPushNotificationsAsync().then((token) => {
+        if (token) savePushToken(token);
+      });
     });
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     if (isWeb) return;
-    getLastNotificationResponse().then((response) => {
-      if (!response || mounted.current) return;
-      const data = response.notification.request.content.data as { type?: string; eventId?: string; message?: string };
-      if (data?.eventId) {
-        if (data.type === 'bell_ring') {
-          const q = data.message ? `?message=${encodeURIComponent(data.message)}` : '';
-          router.replace(`/event/${data.eventId}/bell${q}`);
-        } else if (data.type === 'invite_received' || data.type === 'reminder') {
-          router.replace(`/event/${data.eventId}`);
+    import('@/lib/notifications').then(({ getLastNotificationResponse }) => {
+      getLastNotificationResponse().then((response) => {
+        if (!response || mounted.current) return;
+        const data = response.notification.request.content.data as { type?: string; eventId?: string; message?: string };
+        if (data?.eventId) {
+          if (data.type === 'bell_ring') {
+            const q = data.message ? `?message=${encodeURIComponent(data.message)}` : '';
+            router.replace(`/event/${data.eventId}/bell${q}`);
+          } else if (data.type === 'invite_received' || data.type === 'reminder') {
+            router.replace(`/event/${data.eventId}`);
+          }
         }
-      }
+      });
     });
     mounted.current = true;
   }, []);
 
   useEffect(() => {
     if (isWeb) return;
-    const sub = addNotificationResponseListener((response) => {
-      const data = response.notification.request.content.data as { type?: string; eventId?: string; message?: string };
-      if (data?.eventId) {
-        if (data.type === 'bell_ring') {
-          const q = data.message ? `?message=${encodeURIComponent(data.message)}` : '';
-          router.push(`/event/${data.eventId}/bell${q}`);
-        } else if (data.type === 'invite_received' || data.type === 'reminder') {
-          router.push(`/event/${data.eventId}`);
+    let unsub: (() => void) | undefined;
+    import('@/lib/notifications').then(({ addNotificationResponseListener }) => {
+      unsub = addNotificationResponseListener((response) => {
+        const data = response.notification.request.content.data as { type?: string; eventId?: string; message?: string };
+        if (data?.eventId) {
+          if (data.type === 'bell_ring') {
+            const q = data.message ? `?message=${encodeURIComponent(data.message)}` : '';
+            router.push(`/event/${data.eventId}/bell${q}`);
+          } else if (data.type === 'invite_received' || data.type === 'reminder') {
+            router.push(`/event/${data.eventId}`);
+          }
         }
-      }
+      });
     });
-    return () => sub();
+    return () => {
+      unsub?.();
+    };
   }, [router]);
 
   return null;
