@@ -220,43 +220,36 @@ export default function CreateDinnerScreen() {
     setError(null);
     try {
       const inviteToken = generateToken();
-      const { data: eventData, error: eventError } = await (supabase as any)
-        .from('events')
-        .insert({
-          host_user_id: user.id,
-          title: form.title,
-          description: form.description || null,
-          start_time: form.startTime,
-          bell_time: form.bellTime,
-          bell_sound: form.bellSound || 'triangle',
-          end_time: form.endTime || null,
-          timezone: form.timezone,
-          address_line1: form.addressLine1 || 'TBD',
-          address_line2: form.addressLine2 || null,
-          city: form.city || '',
-          state: form.state || '',
-          postal_code: form.postalCode || '',
-          country: form.country || '',
-          location_name: form.locationName || null,
-          location_notes: form.locationNotes || null,
-          invite_note: form.noteToGuests || null,
-          invite_token: inviteToken,
-          is_cancelled: false,
-          theme_slug: form.templateSlug ?? null,
-          accent_color: form.accentColor ?? null,
-          capacity: form.capacity ?? null,
-          is_public: form.isPublic ?? false,
-        })
-        .select('id')
-        .single();
+      const { data: eventId, error: eventError } = await (supabase as any).rpc('create_event', {
+        p_title: form.title,
+        p_description: form.description || null,
+        p_start_time: form.startTime,
+        p_bell_time: form.bellTime,
+        p_bell_sound: form.bellSound || 'triangle',
+        p_end_time: form.endTime || null,
+        p_timezone: form.timezone,
+        p_address_line1: form.addressLine1 || 'TBD',
+        p_address_line2: form.addressLine2 || null,
+        p_city: form.city || '',
+        p_state: form.state || '',
+        p_postal_code: form.postalCode || '',
+        p_country: form.country || '',
+        p_location_name: form.locationName || null,
+        p_location_notes: form.locationNotes || null,
+        p_invite_note: form.noteToGuests || null,
+        p_invite_token: inviteToken,
+        p_theme_slug: form.templateSlug ?? null,
+        p_accent_color: form.accentColor ?? null,
+        p_capacity: form.capacity ?? null,
+        p_is_public: form.isPublic ?? false,
+      });
 
-      if (eventError || !eventData) {
-        setError(eventError?.message ?? 'Failed to create event');
+      if (eventError || eventId == null) {
+        const msg = eventError?.code === 'PGRST116' ? 'Run the "Create event RPC" SQL in Supabase SQL Editor (see migration 018).' : (eventError?.message ?? 'Failed to create event');
+        setError(msg);
         setSaving(false);
         return;
       }
-
-      const eventId = eventData.id;
 
       for (let i = 0; i < form.menuSections.length; i++) {
         const sec = form.menuSections[i];
