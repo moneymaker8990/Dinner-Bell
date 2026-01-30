@@ -806,3 +806,9 @@ $$;
 -- ========== 015_discovery_public_toggle.sql ==========
 ALTER TABLE public.events ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS idx_events_is_public ON public.events(is_public) WHERE is_public = true;
+
+-- ========== 016_fix_events_insert_policy.sql ==========
+DROP POLICY IF EXISTS "Users can create events as host" ON public.events;
+CREATE POLICY "Users can create events as host" ON public.events
+  FOR INSERT
+  WITH CHECK (host_user_id = auth.uid());

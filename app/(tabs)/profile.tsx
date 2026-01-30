@@ -64,47 +64,53 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (!user) return;
     const fetchStats = async () => {
-      const { count: hosted } = await supabase
-        .from('events')
-        .select('id', { count: 'exact', head: true })
-        .eq('host_user_id', user.id)
-        .eq('is_cancelled', false);
-      setHostedCount(hosted ?? 0);
+      try {
+        const { count: hosted } = await supabase
+          .from('events')
+          .select('id', { count: 'exact', head: true })
+          .eq('host_user_id', user.id)
+          .eq('is_cancelled', false);
+        setHostedCount(hosted ?? 0);
 
-      const { data: guestRows } = await supabase
-        .from('event_guests')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('rsvp_status', 'going');
-      const guestIds = (guestRows ?? []).map((r: { id: string }) => r.id);
-      const { data: eventIdsData } = await supabase
-        .from('event_guests')
-        .select('event_id')
-        .eq('user_id', user.id)
-        .eq('rsvp_status', 'going');
-      const goingEventIds = [...new Set((eventIdsData ?? []).map((r: { event_id: string }) => r.event_id))];
-      const attended =
-        goingEventIds.length === 0
-          ? 0
-          : (
-              await supabase
-                .from('events')
-                .select('id', { count: 'exact', head: true })
-                .in('id', goingEventIds)
-                .eq('is_cancelled', false)
-            ).count ?? 0;
-      setAttendedCount(attended);
+        const { data: guestRows } = await supabase
+          .from('event_guests')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('rsvp_status', 'going');
+        const guestIds = (guestRows ?? []).map((r: { id: string }) => r.id);
+        const { data: eventIdsData } = await supabase
+          .from('event_guests')
+          .select('event_id')
+          .eq('user_id', user.id)
+          .eq('rsvp_status', 'going');
+        const goingEventIds = [...new Set((eventIdsData ?? []).map((r: { event_id: string }) => r.event_id))];
+        const attended =
+          goingEventIds.length === 0
+            ? 0
+            : (
+                await supabase
+                  .from('events')
+                  .select('id', { count: 'exact', head: true })
+                  .in('id', goingEventIds)
+                  .eq('is_cancelled', false)
+              ).count ?? 0;
+        setAttendedCount(attended);
 
-      if (guestIds.length === 0) {
+        if (guestIds.length === 0) {
+          setClaimedCount(0);
+          return;
+        }
+        const { count: brought } = await supabase
+          .from('bring_items')
+          .select('id', { count: 'exact', head: true })
+          .in('status', ['claimed', 'provided'])
+          .in('claimed_by_guest_id', guestIds);
+        setClaimedCount(brought ?? 0);
+      } catch {
+        setHostedCount(0);
+        setAttendedCount(0);
         setClaimedCount(0);
-        return;
       }
-      const { count: brought } = await supabase
-        .from('bring_items')
-        .select('id', { count: 'exact', head: true })
-        .in('status', ['claimed', 'provided'])
-        .in('claimed_by_guest_id', guestIds);
-      setClaimedCount(brought ?? 0);
     };
     fetchStats();
   }, [user?.id]);

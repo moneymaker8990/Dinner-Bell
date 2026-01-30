@@ -49,9 +49,20 @@ You can do this in one of two ways: **Dashboard (SQL Editor)** or **Supabase CLI
    | 4 | `supabase/migrations/004_invite_preview.sql` |
    | 5 | `supabase/migrations/005_claim_message.sql` |
    | 6 | `supabase/migrations/006_add_guest_by_host.sql` |
+   | 7 | `supabase/migrations/007_fix_rls_recursion.sql` |
+   | 8 | `supabase/migrations/008_add_guest_by_phone.sql` |
+   | 9 | `supabase/migrations/009_premium_foundation.sql` |
+   | 10 | `supabase/migrations/010_phase1_invite_presence.sql` |
+   | 11 | `supabase/migrations/011_in_event_mode.sql` |
+   | 12 | `supabase/migrations/012_event_templates_seed.sql` |
+   | 13 | `supabase/migrations/013_host_power_tools.sql` |
+   | 14 | `supabase/migrations/014_invite_preview_guest_count.sql` |
+   | 15 | `supabase/migrations/015_discovery_public_toggle.sql` |
+
+   **Alternative:** For a fresh project you can run the entire `supabase/run-all-migrations.sql` file once in the SQL Editor (it includes all of the above).
 
 3. After each run, check for errors. If you see "relation already exists" or similar, that migration was already applied; you can skip it or run only the new parts.
-4. In **Table Editor**, confirm that tables exist: `events`, `event_guests`, `bring_items`, `menu_sections`, `menu_items`, `schedule_blocks`, `profiles`, `notification_schedules`.
+4. In **Table Editor**, confirm that tables exist: `events`, `event_guests`, `bring_items`, `menu_sections`, `menu_items`, `schedule_blocks`, `profiles`, `notification_schedules`. After premium migrations you’ll also see `guest_groups`, `guest_group_members`, `event_templates`, `event_co_hosts`, `event_photos`, `event_photo_reactions`, `event_messages`, `event_polls`, `event_poll_votes`, `event_waitlist`, `event_prep_tasks`.
 
 ### Option B: Using the Supabase CLI
 
