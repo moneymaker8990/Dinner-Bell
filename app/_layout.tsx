@@ -119,8 +119,7 @@ function RootLayoutNav() {
         <Stack.Screen name="event/[id]/bell" options={{ title: 'Dinner Bell', headerShown: false }} />
         <Stack.Screen name="event/[id]/edit" options={{ title: 'Edit Event' }} />
         <Stack.Screen name="invite/[id]" options={{ title: 'Invite' }} />
-        <Stack.Screen name="groups" options={{ title: 'Guest groups' }} />
-        <Stack.Screen name="groups/[id]" options={{ title: 'Group' }} />
+        <Stack.Screen name="groups" options={{ headerShown: false }} />
         <Stack.Screen name="event/[id]/recap" options={{ title: 'Recap' }} />
         <Stack.Screen name="sign-in" options={{ title: 'Sign in' }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
