@@ -9,10 +9,10 @@ import { supabase } from '@/lib/supabase';
 import type { BringItemRow, EventWithDetails, MenuItemRow, MenuSection, ScheduleBlockRow } from '@/types/events';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, TextInput } from 'react-native';
 
-const STEPS = ['Basics', 'Location', 'Menu', 'Bring List', 'Schedule', 'Review'];
-const TOTAL_STEPS = 6;
+const STEPS = ['Basics', 'Location', 'Menu', 'Bring List', 'Schedule', 'Host tools', 'Review'];
+const TOTAL_STEPS = 7;
 
 function formFromEvent(
   e: EventWithDetails,
@@ -25,6 +25,7 @@ function formFromEvent(
     description: e.description || '',
     startTime: e.start_time.slice(0, 16),
     bellTime: e.bell_time.slice(0, 16),
+    bellSound: ((e as EventWithDetails & { bell_sound?: string }).bell_sound as CreateEventForm['bellSound']) ?? 'triangle',
     endTime: e.end_time ? e.end_time.slice(0, 16) : '',
     timezone: e.timezone || 'UTC',
     addressLine1: e.address_line1 || '',
@@ -62,6 +63,8 @@ function formFromEvent(
     })),
     guestEmails: [],
     noteToGuests: (e as EventWithDetails & { invite_note?: string | null }).invite_note ?? '',
+    capacity: (e as EventWithDetails & { capacity?: number | null }).capacity ?? null,
+    isPublic: (e as EventWithDetails & { is_public?: boolean }).is_public ?? false,
   };
 }
 
@@ -76,6 +79,12 @@ export default function EditEventScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [coHosts, setCoHosts] = useState<{ id: string; user_id: string; email?: string }[]>([]);
+  const [prepTasks, setPrepTasks] = useState<{ id: string; title: string; remind_at: string | null; completed_at: string | null }[]>([]);
+  const [coHostEmail, setCoHostEmail] = useState('');
+  const [addingCoHost, setAddingCoHost] = useState(false);
+  const [newPrepTitle, setNewPrepTitle] = useState('');
+  const [addingPrep, setAddingPrep] = useState(false);
 
   const inputStyle = [styles.input, { borderColor: colors.inputBorder }];
 
@@ -95,10 +104,19 @@ export default function EditEventScreen() {
         .from('events')
         .select('*')
         .eq('id', id)
-        .eq('host_user_id', user.id)
         .single();
       if (eventError || !eventData) {
         setError('Event not found');
+        setLoading(false);
+        return;
+      }
+      const e = eventData as EventWithDetails & { host_user_id: string };
+      const isHost = e.host_user_id === user.id;
+      const { data: coHosts } = await supabase.from('event_co_hosts').select('user_id').eq('event_id', id);
+      const coHostIds = (coHosts ?? []).map((c: { user_id: string }) => c.user_id);
+      const isCoHost = coHostIds.includes(user.id);
+      if (!isHost && !isCoHost) {
+        setError('Only the host or co-hosts can edit this event.');
         setLoading(false);
         return;
       }
@@ -123,6 +141,14 @@ export default function EditEventScreen() {
           (blocks ?? []) as ScheduleBlockRow[]
         )
       );
+      const [{ data: coHostsData }, { data: prepData }] = await Promise.all([
+        supabase.from('event_co_hosts').select('id, user_id').eq('event_id', id),
+        supabase.from('event_prep_tasks').select('id, title, remind_at, completed_at').eq('event_id', id).order('sort_order'),
+      ]);
+      const coHostRows = (coHostsData ?? []) as { id: string; user_id: string }[];
+      const profiles = await Promise.all(coHostRows.map((c) => supabase.from('profiles').select('name').eq('id', c.user_id).single()));
+      setCoHosts(coHostRows.map((c, i) => ({ ...c, email: (profiles[i]?.data as { name?: string } | null)?.name ?? c.user_id.slice(0, 8) })));
+      setPrepTasks((prepData ?? []) as { id: string; title: string; remind_at: string | null; completed_at: string | null }[]);
       setLoading(false);
     };
     fetch();
@@ -140,6 +166,7 @@ export default function EditEventScreen() {
           description: form.description || null,
           start_time: form.startTime,
           bell_time: form.bellTime,
+          bell_sound: form.bellSound || 'triangle',
           end_time: form.endTime || null,
           timezone: form.timezone,
           address_line1: form.addressLine1 || 'TBD',
@@ -150,9 +177,10 @@ export default function EditEventScreen() {
           country: form.country || '',
           location_name: form.locationName || null,
           location_notes: form.locationNotes || null,
+          capacity: form.capacity ?? null,
+          is_public: form.isPublic ?? false,
         })
-        .eq('id', id)
-        .eq('host_user_id', user.id);
+        .eq('id', id);
 
       await (supabase as any).from('menu_sections').delete().eq('event_id', id);
       for (let i = 0; i < form.menuSections.length; i++) {
@@ -227,6 +255,33 @@ export default function EditEventScreen() {
           <TextInput style={inputStyle} value={form.startTime} onChangeText={(t: string) => updateForm({ startTime: t })} placeholder="YYYY-MM-DDTHH:mm" placeholderTextColor="#888" />
           <Text style={styles.label}>Bell time</Text>
           <TextInput style={inputStyle} value={form.bellTime} onChangeText={(t: string) => updateForm({ bellTime: t })} placeholder="YYYY-MM-DDTHH:mm" placeholderTextColor="#888" />
+          <Text style={styles.label}>Bell sound</Text>
+          <View style={styles.bellSoundRow}>
+            {(['triangle', 'chime', 'gong'] as const).map((sound) => (
+              <Pressable
+                key={sound}
+                style={[styles.bellSoundBtn, form.bellSound === sound && { backgroundColor: colors.primaryButton, borderColor: colors.primaryButton }]}
+                onPress={() => updateForm({ bellSound: sound })}
+              >
+                <Text style={[styles.bellSoundBtnText, form.bellSound === sound && { color: colors.primaryButtonText }]}>
+                  {sound === 'triangle' ? 'Triangle' : sound === 'chime' ? 'Chime' : 'Gong'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.label}>Capacity (optional max guests, leave empty for no limit)</Text>
+          <TextInput
+            style={inputStyle}
+            value={form.capacity != null ? String(form.capacity) : ''}
+            onChangeText={(t: string) => updateForm({ capacity: t === '' ? null : parseInt(t, 10) || null })}
+            placeholder="e.g. 12"
+            placeholderTextColor="#888"
+            keyboardType="number-pad"
+          />
+          <View style={styles.toggleRow}>
+            <Text style={styles.toggleLabel}>List in Discover (public event)</Text>
+            <Switch value={form.isPublic ?? false} onValueChange={(v) => updateForm({ isPublic: v })} trackColor={{ false: colors.inputBorder, true: colors.primaryButton }} thumbColor="#fff" />
+          </View>
         </>
       )}
 
@@ -329,10 +384,105 @@ export default function EditEventScreen() {
       )}
 
       {step === 5 && (
+        <>
+          <Text style={styles.label}>Co-hosts (can edit menu, bring list, ring bell)</Text>
+          {coHosts.map((c) => (
+            <View key={c.id} style={styles.coHostRow}>
+              <Text style={styles.coHostText}>{c.email ?? c.user_id}</Text>
+              <Pressable
+                onPress={async () => {
+                  await supabase.from('event_co_hosts').delete().eq('id', c.id);
+                  setCoHosts((prev) => prev.filter((x) => x.id !== c.id));
+                }}
+              >
+                <Text style={styles.removeText}>Remove</Text>
+              </Pressable>
+            </View>
+          ))}
+          <View style={styles.addRow}>
+            <TextInput
+              style={[inputStyle, { flex: 1 }]}
+              value={coHostEmail}
+              onChangeText={setCoHostEmail}
+              placeholder="Co-host email"
+              placeholderTextColor="#888"
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            <Pressable
+              style={[styles.addBtn, { backgroundColor: colors.primaryButton }]}
+              disabled={addingCoHost || !coHostEmail.trim()}
+              onPress={async () => {
+                setAddingCoHost(true);
+                const { data: userId, error: rpcErr } = await (supabase as any).rpc('get_user_id_by_email', { p_email: coHostEmail.trim() });
+                if (rpcErr || !userId) {
+                  setError('No account found for that email.');
+                  setAddingCoHost(false);
+                  return;
+                }
+                const { data: inserted, error: insertErr } = await supabase.from('event_co_hosts').insert({ event_id: id!, user_id: userId }).select('id, user_id').single();
+                setAddingCoHost(false);
+                if (insertErr) {
+                  setError(insertErr.message.includes('duplicate') ? 'Already a co-host' : insertErr.message);
+                  return;
+                }
+                setCoHosts((prev) => [...prev, { id: inserted.id, user_id: inserted.user_id, email: coHostEmail.trim() }]);
+                setCoHostEmail('');
+                setError(null);
+              }}
+            >
+              <Text style={[styles.addBtnText, { color: colors.primaryButtonText }]}>Add</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.label}>Prep checklist (private to host/co-hosts)</Text>
+          {prepTasks.map((t) => (
+            <View key={t.id} style={styles.prepRow}>
+              <Text style={t.completed_at ? styles.prepTitleDone : styles.prepTitle}>{t.title}</Text>
+              <Pressable
+                onPress={async () => {
+                  await supabase.from('event_prep_tasks').update({ completed_at: t.completed_at ? null : new Date().toISOString() }).eq('id', t.id);
+                  setPrepTasks((prev) => prev.map((p) => (p.id === t.id ? { ...p, completed_at: p.completed_at ? null : new Date().toISOString() } : p)));
+                }}
+              >
+                <Text style={[styles.smallBtnText, { color: colors.tint }]}>{t.completed_at ? 'Undo' : 'Done'}</Text>
+              </Pressable>
+              <Pressable onPress={async () => { await supabase.from('event_prep_tasks').delete().eq('id', t.id); setPrepTasks((prev) => prev.filter((x) => x.id !== t.id)); }}>
+                <Text style={styles.removeText}>Remove</Text>
+              </Pressable>
+            </View>
+          ))}
+          <View style={styles.addRow}>
+            <TextInput
+              style={[inputStyle, { flex: 1 }]}
+              value={newPrepTitle}
+              onChangeText={setNewPrepTitle}
+              placeholder="e.g. Preheat oven"
+              placeholderTextColor="#888"
+            />
+            <Pressable
+              style={[styles.addBtn, { backgroundColor: colors.primaryButton }]}
+              disabled={addingPrep || !newPrepTitle.trim()}
+              onPress={async () => {
+                setAddingPrep(true);
+                await supabase.from('event_prep_tasks').insert({ event_id: id!, title: newPrepTitle.trim(), sort_order: prepTasks.length });
+                const { data: list } = await supabase.from('event_prep_tasks').select('id, title, remind_at, completed_at').eq('event_id', id!).order('sort_order');
+                setPrepTasks((list ?? []) as typeof prepTasks);
+                setNewPrepTitle('');
+                setAddingPrep(false);
+              }}
+            >
+              <Text style={[styles.addBtnText, { color: colors.primaryButtonText }]}>Add</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
+
+      {step === 6 && (
         <View style={styles.summary}>
           <Text style={styles.summaryTitle}>{form.title}</Text>
           <Text style={styles.summaryText}>Bell: {form.bellTime}</Text>
           <Text style={styles.summaryText}>{form.addressLine1}, {form.city}</Text>
+          {form.capacity != null ? <Text style={styles.summaryText}>Capacity: {form.capacity}</Text> : null}
         </View>
       )}
 
@@ -364,6 +514,9 @@ const styles = StyleSheet.create({
   centered: { flex: 1, textAlign: 'center', marginTop: 40 },
   stepTitle: { fontSize: 22, fontWeight: '600', marginBottom: 16 },
   label: { fontSize: 14, fontWeight: '500', marginBottom: 6 },
+  bellSoundRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  bellSoundBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#ccc' },
+  bellSoundBtnText: { fontSize: 14, fontWeight: '500' },
   input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 16 },
   textArea: { minHeight: 80 },
   section: { marginBottom: 16 },
@@ -380,4 +533,16 @@ const styles = StyleSheet.create({
   btnSecondary: { padding: 16, borderRadius: 8, alignItems: 'center' },
   btnSecondaryText: { fontWeight: '600' },
   btnDisabled: { opacity: 0.6 },
+  coHostRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  coHostText: { fontSize: 16, flex: 1 },
+  removeText: { fontSize: 14, color: '#c00', fontWeight: '500' },
+  addRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
+  addBtn: { paddingVertical: 12, paddingHorizontal: 20, borderRadius: 8 },
+  addBtnText: { fontWeight: '600' },
+  prepRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  prepTitle: { fontSize: 16, flex: 1 },
+  prepTitleDone: { fontSize: 16, flex: 1, textDecorationLine: 'line-through', opacity: 0.7 },
+  smallBtnText: { fontSize: 14, fontWeight: '500' },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  toggleLabel: { fontSize: 14, flex: 1 },
 });

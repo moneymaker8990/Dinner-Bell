@@ -168,6 +168,7 @@ You can do this after the app is working for create/RSVP/bring list.
 | **RLS policy violation** | User must be signed in for host actions; for invite preview use the RPCs `get_event_by_invite` / `add_guest_by_invite` (they work for anon). |
 | **Trigger error `EXECUTE FUNCTION`** | Supabase uses Postgres 15; `EXECUTE FUNCTION` is correct. If you’re on an older Postgres elsewhere, try `EXECUTE PROCEDURE` in the trigger definition. |
 | **Env vars not updating** | Restart Expo with cache clear: `npx expo start -c`. |
+| **CORS blocked when calling Edge Functions from web** | The functions (send-bell, notify-host, send-invite-push) return CORS headers and handle OPTIONS. If you still see CORS errors, redeploy: `supabase functions deploy send-bell` (and the others). Ensure the functions are deployed to the same project as your app’s Supabase URL. |
 
 ---
 

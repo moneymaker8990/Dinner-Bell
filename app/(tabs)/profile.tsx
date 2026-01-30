@@ -12,11 +12,12 @@ import Colors from '@/constants/Colors';
 import { spacing, typography } from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
+import { normalizePhoneForLookup } from '@/lib/invite';
 import { supabase } from '@/lib/supabase';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Switch } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, TextInput } from 'react-native';
 
 function initialsFromEmail(email: string | undefined): string {
   if (!email) return '?';
@@ -48,27 +49,62 @@ export default function ProfileScreen() {
   const [attendedCount, setAttendedCount] = useState(0);
   const [claimedCount, setClaimedCount] = useState(0);
 
+  const [profilePhone, setProfilePhone] = useState('');
+  const [profilePhoneSaving, setProfilePhoneSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchProfile = async () => {
+      const { data } = await supabase.from('profiles').select('phone').eq('id', user.id).single();
+      setProfilePhone((data as { phone?: string } | null)?.phone ?? '');
+    };
+    fetchProfile();
+  }, [user?.id]);
+
   useEffect(() => {
     if (!user) return;
     const fetchStats = async () => {
       const { count: hosted } = await supabase
         .from('events')
         .select('id', { count: 'exact', head: true })
-        .eq('host_user_id', user.id);
+        .eq('host_user_id', user.id)
+        .eq('is_cancelled', false);
       setHostedCount(hosted ?? 0);
 
-      const { count: attended } = await supabase
+      const { data: guestRows } = await supabase
         .from('event_guests')
-        .select('id', { count: 'exact', head: true })
+        .select('id')
         .eq('user_id', user.id)
         .eq('rsvp_status', 'going');
-      setAttendedCount(attended ?? 0);
+      const guestIds = (guestRows ?? []).map((r: { id: string }) => r.id);
+      const { data: eventIdsData } = await supabase
+        .from('event_guests')
+        .select('event_id')
+        .eq('user_id', user.id)
+        .eq('rsvp_status', 'going');
+      const goingEventIds = [...new Set((eventIdsData ?? []).map((r: { event_id: string }) => r.event_id))];
+      const attended =
+        goingEventIds.length === 0
+          ? 0
+          : (
+              await supabase
+                .from('events')
+                .select('id', { count: 'exact', head: true })
+                .in('id', goingEventIds)
+                .eq('is_cancelled', false)
+            ).count ?? 0;
+      setAttendedCount(attended);
 
-      const { count: claimed } = await supabase
+      if (guestIds.length === 0) {
+        setClaimedCount(0);
+        return;
+      }
+      const { count: brought } = await supabase
         .from('bring_items')
         .select('id', { count: 'exact', head: true })
-        .in('status', ['claimed', 'provided']);
-      setClaimedCount(claimed ?? 0);
+        .in('status', ['claimed', 'provided'])
+        .in('claimed_by_guest_id', guestIds);
+      setClaimedCount(brought ?? 0);
     };
     fetchStats();
   }, [user?.id]);
@@ -77,6 +113,24 @@ export default function ProfileScreen() {
     await supabase.auth.signOut();
     toast.show('Signed out. Come back hungry.');
   };
+
+  const handleSavePhone = async () => {
+    if (!user) return;
+    const normalized = normalizePhoneForLookup(profilePhone);
+    if (normalized.length > 0 && normalized.length < 10) {
+      toast.show('Enter a valid phone number (at least 10 digits).');
+      return;
+    }
+    setProfilePhoneSaving(true);
+    const { error } = await (supabase as any)
+      .from('profiles')
+      .update({ phone: normalized || null, updated_at: new Date().toISOString() })
+      .eq('id', user.id);
+    setProfilePhoneSaving(false);
+    if (error) toast.show('Could not save phone number.');
+    else toast.show(normalized ? 'Phone number saved. Hosts can invite you by this number.' : 'Phone number cleared.');
+  };
+
 
   const subtitle = isSignedIn
     ? `${user?.email ?? 'Signed in'}`
@@ -119,9 +173,31 @@ export default function ProfileScreen() {
                   <View style={styles.statItem}>
                     <FontAwesome name="gift" size={14} color={colors.tint} style={styles.statIcon} />
                     <Text style={[styles.statValue, { color: colors.textPrimary }]}>{claimedCount}</Text>
-                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Items claimed</Text>
+                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Items brought</Text>
                   </View>
                 </View>
+                {(hostedCount >= 1 || claimedCount >= 10 || attendedCount >= 3) && (
+                  <View style={styles.badgesRow}>
+                    <Text style={[styles.badgesLabel, { color: colors.textSecondary }]}>Badges</Text>
+                    <View style={styles.badgeChips}>
+                      {hostedCount >= 1 && (
+                        <View style={[styles.badgeChip, { backgroundColor: colors.tint + '24', borderColor: colors.tint + '60' }]}>
+                          <Text style={[styles.badgeChipText, { color: colors.tint }]}>Dinner host</Text>
+                        </View>
+                      )}
+                      {claimedCount >= 10 && (
+                        <View style={[styles.badgeChip, { backgroundColor: colors.accentSage + '24', borderColor: colors.accentSage + '60' }]}>
+                          <Text style={[styles.badgeChipText, { color: colors.accentSage }]}>Super bringer</Text>
+                        </View>
+                      )}
+                      {attendedCount >= 3 && (
+                        <View style={[styles.badgeChip, { backgroundColor: colors.border }]}>
+                          <Text style={[styles.badgeChipText, { color: colors.textSecondary }]}>Regular</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                )}
               </CardBody>
             </Card>
 
@@ -177,6 +253,15 @@ export default function ProfileScreen() {
                   icon={<FontAwesome name="map-marker" size={16} color={colors.tint} />}
                   right={<Text style={[styles.settingLink, { color: colors.tint }]}>Manage</Text>}
                 />
+                <Divider />
+                <Pressable onPress={() => router.push('/groups')}>
+                  <SettingsRow
+                    title="Guest groups"
+                    subtitle="Reuse the same guest list for future events."
+                    icon={<FontAwesome name="users" size={16} color={colors.tint} />}
+                    right={<Text style={[styles.settingLink, { color: colors.tint }]}>Manage</Text>}
+                  />
+                </Pressable>
               </CardBody>
             </Card>
 
@@ -197,6 +282,25 @@ export default function ProfileScreen() {
             <Card style={styles.settingsCard}>
               <CardHeader title="Account" />
               <CardBody style={styles.cardBodyNoTopPadding}>
+                <View style={styles.phoneRow}>
+                  <FontAwesome name="phone" size={16} color={colors.textSecondary} style={styles.phoneIcon} />
+                  <Text style={[styles.phoneLabel, { color: colors.textPrimary }]}>Phone number</Text>
+                </View>
+                <Text style={[styles.phoneSubtitle, { color: colors.textSecondary }]}>
+                  So hosts can add you from their contacts and send you invite push notifications.
+                </Text>
+                <TextInput
+                  style={[styles.phoneInput, { borderColor: colors.border, color: colors.textPrimary }]}
+                  value={profilePhone}
+                  onChangeText={setProfilePhone}
+                  placeholder="+1 234 567 8900"
+                  placeholderTextColor="#888"
+                  keyboardType="phone-pad"
+                  onBlur={handleSavePhone}
+                  editable={!profilePhoneSaving}
+                />
+                {profilePhoneSaving ? <Text style={[styles.phoneHint, { color: colors.textSecondary }]}>Saving...</Text> : null}
+                <Divider />
                 <SettingsRow
                   title="Change email"
                   subtitle="Update your email address."
@@ -295,6 +399,31 @@ const styles = StyleSheet.create({
     height: 40,
     opacity: 0.5,
   },
+  badgesRow: {
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(128,128,128,0.2)',
+  },
+  badgesLabel: {
+    fontSize: typography.small,
+    marginBottom: spacing.sm,
+  },
+  badgeChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  badgeChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  badgeChipText: {
+    fontSize: typography.small,
+    fontWeight: '600',
+  },
   settingsCard: {
     marginBottom: spacing.xl,
   },
@@ -325,5 +454,34 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     textAlign: 'center',
     lineHeight: 24,
+  },
+  phoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  phoneIcon: {
+    marginRight: spacing.sm,
+  },
+  phoneLabel: {
+    fontSize: typography.body,
+    fontWeight: '500',
+  },
+  phoneSubtitle: {
+    fontSize: typography.small,
+    marginBottom: spacing.sm,
+    lineHeight: 20,
+  },
+  phoneInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: typography.body,
+    marginBottom: spacing.xs,
+  },
+  phoneHint: {
+    fontSize: typography.small,
+    marginBottom: spacing.md,
   },
 });

@@ -1,10 +1,14 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const corsHeaders = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' };
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
   try {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -13,7 +17,7 @@ serve(async (req) => {
     if (userError || !user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     const { eventId, message } = (await req.json()) as { eventId: string; message?: string };
     if (!eventId) return new Response(JSON.stringify({ error: 'eventId required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    const { data: event } = await supabaseAdmin.from('events').select('host_user_id').eq('id', eventId).single();
+    const { data: event } = await supabaseAdmin.from('events').select('host_user_id, bell_sound').eq('id', eventId).single();
     if (!event || event.host_user_id !== user.id) return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     const supabase = supabaseAdmin;
     const { data: guests } = await supabase
@@ -33,7 +37,7 @@ serve(async (req) => {
           to: token,
           title: 'Dinner Bell!',
           body: message ?? 'Time to eat.',
-          data: { type: 'bell_ring', eventId, message },
+          data: { type: 'bell_ring', eventId, message, bellSound: event.bell_sound ?? 'triangle' },
         }),
       });
     }

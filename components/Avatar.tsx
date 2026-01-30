@@ -1,31 +1,43 @@
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { StyleSheet, View, ViewStyle } from 'react-native';
+import { Image, StyleSheet, View, ViewStyle } from 'react-native';
 
 interface AvatarProps {
   initials: string;
+  avatarUrl?: string | null;
   size?: number;
   style?: ViewStyle;
 }
 
-export function Avatar({ initials, size = 64, style }: AvatarProps) {
+export function Avatar({ initials, avatarUrl, size = 64, style }: AvatarProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
   const fontSize = Math.max(14, size * 0.4);
 
+  const containerStyle = [
+    styles.avatar,
+    {
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      backgroundColor: colors.tint + '40',
+    },
+    style,
+  ];
+
+  if (avatarUrl) {
+    return (
+      <Image
+        source={{ uri: avatarUrl }}
+        style={[containerStyle, styles.image]}
+        resizeMode="cover"
+      />
+    );
+  }
+
   return (
-    <View
-      style={[
-        styles.avatar,
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: colors.tint + '40',
-        },
-        style,
-      ]}>
+    <View style={containerStyle}>
       <Text style={[styles.initials, { color: colors.tint, fontSize }]} numberOfLines={1}>
         {initials.toUpperCase().slice(0, 2)}
       </Text>
@@ -37,6 +49,9 @@ const styles = StyleSheet.create({
   avatar: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  image: {
+    overflow: 'hidden',
   },
   initials: {
     fontWeight: '600',

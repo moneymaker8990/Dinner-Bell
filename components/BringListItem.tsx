@@ -1,21 +1,31 @@
+import { Avatar } from '@/components/Avatar';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { hapticClaim } from '@/lib/haptics';
 import { claimBringItem } from '@/lib/invite';
 import { notifyHostBringClaimed } from '@/lib/notifyHost';
 import type { BringItemRow } from '@/types/events';
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, TextInput } from 'react-native';
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  if (parts[0]) return parts[0].slice(0, 2).toUpperCase();
+  return '?';
+}
+
 interface BringListItemProps {
   item: BringItemRow;
   eventId: string;
   guestId: string | null;
   guestName?: string;
+  claimedByName?: string | null;
   onClaimed?: () => void;
 }
 
-export function BringListItem({ item, eventId, guestId, guestName, onClaimed }: BringListItemProps) {
+export function BringListItem({ item, eventId, guestId, guestName, claimedByName, onClaimed }: BringListItemProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
   const [modalVisible, setModalVisible] = useState(false);
@@ -27,6 +37,7 @@ export function BringListItem({ item, eventId, guestId, guestName, onClaimed }: 
   const canClaim = item.is_claimable && item.status === 'unclaimed' && guestId;
 
   const handleClaim = async () => {
+    hapticClaim();
     setSubmitting(true);
     setError(null);
     const ok = await claimBringItem(item.id, guestId!, quantity, claimMessage.trim() || undefined);
@@ -41,14 +52,23 @@ export function BringListItem({ item, eventId, guestId, guestName, onClaimed }: 
   };
 
   const statusText = item.status === 'provided' ? 'Provided' : item.status === 'claimed' ? 'Claimed' : 'Unclaimed';
+  const needLabel = item.is_required ? 'Needed' : 'Optional';
 
   return (
     <>
       <View style={styles.row}>
         <View style={styles.info}>
-          <Text style={styles.name}>{item.name}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.name}>{item.name}</Text>
+            {item.status === 'claimed' && claimedByName && (
+              <Avatar initials={initials(claimedByName)} size={28} style={styles.claimedAvatar} />
+            )}
+          </View>
           <Text style={styles.quantity}>{item.quantity}</Text>
-          <Text style={styles.status}>{statusText}</Text>
+          <View style={styles.statusRow}>
+            <Text style={styles.status}>{statusText}</Text>
+            <Text style={styles.needLabel}> · {needLabel}</Text>
+          </View>
         </View>
         {canClaim && (
           <Pressable style={[styles.claimBtn, { backgroundColor: colors.primaryButton }]} onPress={() => setModalVisible(true)}>
@@ -106,9 +126,13 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(128,128,128,0.2)',
   },
   info: { flex: 1 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   name: { fontSize: 16, fontWeight: '500' },
+  claimedAvatar: { marginLeft: 4 },
   quantity: { fontSize: 14, opacity: 0.8, marginTop: 2 },
-  status: { fontSize: 12, opacity: 0.7, marginTop: 2 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+  status: { fontSize: 12, opacity: 0.7 },
+  needLabel: { fontSize: 12, opacity: 0.6 },
   claimBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8 },
   claimBtnText: { fontWeight: '600' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },

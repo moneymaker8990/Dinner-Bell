@@ -1,10 +1,13 @@
 import type { BringItemCategory } from '@/types/database';
 
+export type BellSoundSlug = 'triangle' | 'chime' | 'gong';
+
 export interface CreateEventForm {
   title: string;
   description: string;
   startTime: string;
   bellTime: string;
+  bellSound: BellSoundSlug;
   endTime: string;
   timezone: string;
   addressLine1: string;
@@ -20,6 +23,10 @@ export interface CreateEventForm {
   scheduleBlocks: { id: string; title: string; time: string; notes: string }[];
   guestEmails: string[];
   noteToGuests: string;
+  templateSlug?: string | null;
+  accentColor?: string | null;
+  capacity?: number | null;
+  isPublic?: boolean;
 }
 
 export const defaultForm: CreateEventForm = {
@@ -27,6 +34,7 @@ export const defaultForm: CreateEventForm = {
   description: '',
   startTime: new Date().toISOString().slice(0, 16),
   bellTime: new Date().toISOString().slice(0, 16),
+  bellSound: 'triangle',
   endTime: '',
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   addressLine1: '',
@@ -42,6 +50,8 @@ export const defaultForm: CreateEventForm = {
   scheduleBlocks: [{ id: crypto.randomUUID(), title: 'Dinner', time: '', notes: '' }],
   guestEmails: [],
   noteToGuests: '',
+  capacity: null,
+  isPublic: false,
 };
 
 export function generateId(): string {

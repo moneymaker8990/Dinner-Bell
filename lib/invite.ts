@@ -20,6 +20,7 @@ export interface EventByInvite {
   country: string;
   location_notes: string | null;
   is_cancelled: boolean;
+  capacity?: number | null;
 }
 
 export async function getEventByInvite(
@@ -61,6 +62,8 @@ export interface InvitePreviewBringItem {
 
 export interface InvitePreview {
   event: EventByInvite;
+  host_name: string | null;
+  guest_count?: number;
   menu_sections: InvitePreviewSection[];
   menu_items: InvitePreviewMenuItem[];
   bring_items: InvitePreviewBringItem[];
@@ -78,7 +81,7 @@ export async function getInvitePreview(
   return data as InvitePreview;
 }
 
-export type RsvpStatus = 'going' | 'maybe' | 'cant';
+export type RsvpStatus = 'going' | 'maybe' | 'cant' | 'late';
 
 export async function addGuestByInvite(
   eventId: string,
@@ -114,6 +117,27 @@ export async function addGuestByHost(
   return data as string;
 }
 
+/** Normalize phone to digits-only for storage and lookup. */
+export function normalizePhoneForLookup(phone: string): string {
+  return phone.replace(/\D/g, '');
+}
+
+export async function addGuestByHostPhone(
+  eventId: string,
+  guestPhone: string,
+  guestName?: string
+): Promise<string | null> {
+  const normalized = normalizePhoneForLookup(guestPhone);
+  if (normalized.length < 10) return null;
+  const { data, error } = await (supabase as any).rpc('add_guest_by_host_phone', {
+    p_event_id: eventId,
+    p_guest_phone: normalized,
+    p_guest_name: guestName?.trim() ?? null,
+  });
+  if (error || data == null) return null;
+  return data as string;
+}
+
 /** Send "You're invited" push to a user with this email (host only). Call after addGuestByHost. */
 export async function sendInvitePush(eventId: string, email: string): Promise<boolean> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -124,6 +148,25 @@ export async function sendInvitePush(eventId: string, email: string): Promise<bo
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ eventId, email: email.trim() }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Send "You're invited" push to a user with this phone (host only). Call after addGuestByHostPhone. */
+export async function sendInvitePushByPhone(eventId: string, phone: string): Promise<boolean> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return false;
+  const normalized = normalizePhoneForLookup(phone);
+  if (normalized.length < 10) return false;
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/send-invite-push`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ eventId, phone: normalized }),
     });
     return res.ok;
   } catch {

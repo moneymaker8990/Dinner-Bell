@@ -15,10 +15,14 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.dinnerbell.app"
+      "bundleIdentifier": "com.dinnerbell.app",
+      "infoPlist": {
+        "NSContactsUsageDescription": "Dinner Bell uses your contacts to let you invite guests to events by phone number."
+      }
     },
     "android": {
       "package": "com.dinnerbell.app",
+      "permissions": ["READ_CONTACTS"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"

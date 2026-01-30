@@ -3,12 +3,15 @@ import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { defaultForm, generateId, type CreateEventForm } from '@/lib/eventForm';
+import { fetchGroups, getGroupMembers, type GuestGroup } from '@/lib/groups';
+import { addGuestByHost, addGuestByHostPhone } from '@/lib/invite';
 import { supabase } from '@/lib/supabase';
+import { fetchTemplates, THEME_ACCENT, type EventTemplate } from '@/lib/templates';
 import type { BringItemCategory } from '@/types/database';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Clipboard from 'expo-clipboard';
-import { useRouter } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Switch, TextInput } from 'react-native';
 
 const STEPS = ['Basics', 'Location', 'Menu', 'Bring List', 'Invite', 'Review'];
@@ -43,6 +46,8 @@ function formatBellTime(iso: string): string {
 
 export default function CreateDinnerScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ duplicateEventId?: string }>();
+  const duplicateEventId = params.duplicateEventId;
   const { user } = useAuth();
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
@@ -52,7 +57,91 @@ export default function CreateDinnerScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showBellPicker, setShowBellPicker] = useState(false);
+  const [groups, setGroups] = useState<GuestGroup[]>([]);
+  const [templates, setTemplates] = useState<EventTemplate[]>([]);
   const hasNavigatedRef = useRef(false);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchGroups().then(setGroups);
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchTemplates().then(setTemplates);
+  }, []);
+
+  useEffect(() => {
+    if (!duplicateEventId || !user) return;
+    const load = async () => {
+      const { data: e, error: eErr } = await supabase.from('events').select('*').eq('id', duplicateEventId).single();
+      if (eErr || !e) return;
+      const [{ data: sections }, { data: items }, { data: bring }, { data: blocks }, { data: guestList }] = await Promise.all([
+        supabase.from('menu_sections').select('*').eq('event_id', duplicateEventId).order('sort_order'),
+        supabase.from('menu_items').select('*').eq('event_id', duplicateEventId).order('sort_order'),
+        supabase.from('bring_items').select('*').eq('event_id', duplicateEventId).order('sort_order'),
+        supabase.from('schedule_blocks').select('*').eq('event_id', duplicateEventId).order('sort_order'),
+        supabase.from('event_guests').select('guest_phone_or_email').eq('event_id', duplicateEventId),
+      ]);
+      const sectionMap = new Map<string, string>();
+      (sections ?? []).forEach((s: { id: string }) => sectionMap.set(s.id, generateId()));
+      const menuSections = (sections ?? []).map((s: { id: string; title: string; sort_order: number }, i: number) => ({
+        id: sectionMap.get(s.id) ?? generateId(),
+        title: s.title,
+        items: (items ?? [])
+          .filter((it: { section_id: string }) => it.section_id === s.id)
+          .sort((a: { sort_order: number }, b: { sort_order: number }) => a.sort_order - b.sort_order)
+          .map((it: { name: string; notes: string | null; dietary_tags: string[] | null }) => ({
+            id: generateId(),
+            name: it.name,
+            notes: it.notes ?? '',
+            dietaryTags: it.dietary_tags ?? [],
+          })),
+      }));
+      const bringItems = (bring ?? []).map((b: { name: string; quantity: string; category: string; is_required: boolean; is_claimable: boolean; notes: string | null }) => ({
+        id: generateId(),
+        name: b.name,
+        quantity: b.quantity ?? '1',
+        category: b.category as BringItemCategory,
+        isRequired: b.is_required,
+        isClaimable: b.is_claimable,
+        notes: b.notes ?? '',
+      }));
+      const scheduleBlocks = (blocks ?? []).map((b: { title: string; time: string | null; notes: string | null }) => ({
+        id: generateId(),
+        title: b.title,
+        time: b.time ? b.time.slice(0, 16) : '',
+        notes: b.notes ?? '',
+      }));
+      const guestEmails = (guestList ?? []).map((g: { guest_phone_or_email: string }) => g.guest_phone_or_email).filter((x: string) => x.includes('@'));
+      const base = new Date();
+      const startTime = new Date(base.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
+      const bellTime = new Date(base.getTime() + 7 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000).toISOString().slice(0, 16);
+      setForm({
+        ...defaultForm,
+        title: (e.title ?? '') + ' (copy)',
+        description: e.description ?? '',
+        startTime,
+        bellTime,
+        bellSound: (e.bell_sound as CreateEventForm['bellSound']) ?? 'triangle',
+        endTime: '',
+        timezone: e.timezone ?? defaultForm.timezone,
+        addressLine1: e.address_line1 ?? '',
+        addressLine2: e.address_line2 ?? '',
+        city: e.city ?? '',
+        state: e.state ?? '',
+        postalCode: e.postal_code ?? '',
+        country: e.country ?? '',
+        locationName: e.location_name ?? '',
+        locationNotes: e.location_notes ?? '',
+        menuSections,
+        bringItems,
+        scheduleBlocks,
+        guestEmails,
+        noteToGuests: '',
+      });
+    };
+    load();
+  }, [duplicateEventId, user?.id]);
 
   const updateForm = useCallback((updates: Partial<CreateEventForm>) => {
     setForm((prev) => ({ ...prev, ...updates }));
@@ -65,6 +154,50 @@ export default function CreateDinnerScreen() {
   const handleBack = () => {
     if (step > 0) setStep(step - 1);
   };
+
+  const applyTemplate = useCallback((t: EventTemplate) => {
+    const base = new Date();
+    const start = new Date(base.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const durationMin = t.default_duration_min ?? 120;
+    const bellOffsetMin = t.default_bell_offset_min ?? 0;
+    const bell = new Date(start.getTime() + bellOffsetMin * 60 * 1000);
+    const end = new Date(start.getTime() + durationMin * 60 * 1000);
+    const menuRaw = (t.menu_json as { title: string; items: { name: string; notes?: string; dietaryTags?: string[] }[] }[]) ?? [];
+    const menuSections = menuRaw.map((sec) => ({
+      id: generateId(),
+      title: sec.title ?? 'Section',
+      items: (sec.items ?? []).map((it) => ({
+        id: generateId(),
+        name: it.name ?? '',
+        notes: it.notes ?? '',
+        dietaryTags: it.dietaryTags ?? [],
+      })),
+    }));
+    const bringRaw = (t.bring_json as { name: string; quantity?: string; category: BringItemCategory; isRequired?: boolean; isClaimable?: boolean; notes?: string }[]) ?? [];
+    const bringItems = bringRaw.map((b) => ({
+      id: generateId(),
+      name: b.name ?? '',
+      quantity: b.quantity ?? '1',
+      category: (b.category as BringItemCategory) ?? 'other',
+      isRequired: b.isRequired ?? false,
+      isClaimable: b.isClaimable ?? true,
+      notes: b.notes ?? '',
+    }));
+    const accentColor = t.theme_slug ? (THEME_ACCENT[t.theme_slug] ?? null) : null;
+    setForm((prev) => ({
+      ...prev,
+      title: t.name,
+      description: t.description ?? prev.description,
+      startTime: start.toISOString().slice(0, 16),
+      bellTime: bell.toISOString().slice(0, 16),
+      endTime: end.toISOString().slice(0, 16),
+      menuSections: menuSections.length ? menuSections : prev.menuSections,
+      bringItems: bringItems.length ? bringItems : prev.bringItems,
+      scheduleBlocks: prev.scheduleBlocks,
+      templateSlug: t.slug,
+      accentColor: accentColor ?? prev.accentColor ?? null,
+    }));
+  }, []);
 
   const inputStyle = [styles.input, { borderColor: colors.inputBorder }];
   const pickerBtnStyle = [styles.pickerBtn, { backgroundColor: colors.card }];
@@ -93,6 +226,7 @@ export default function CreateDinnerScreen() {
           description: form.description || null,
           start_time: form.startTime,
           bell_time: form.bellTime,
+          bell_sound: form.bellSound || 'triangle',
           end_time: form.endTime || null,
           timezone: form.timezone,
           address_line1: form.addressLine1 || 'TBD',
@@ -106,6 +240,10 @@ export default function CreateDinnerScreen() {
           invite_note: form.noteToGuests || null,
           invite_token: inviteToken,
           is_cancelled: false,
+          theme_slug: form.templateSlug ?? null,
+          accent_color: form.accentColor ?? null,
+          capacity: form.capacity ?? null,
+          is_public: form.isPublic ?? false,
         })
         .select('id')
         .single();
@@ -174,6 +312,16 @@ export default function CreateDinnerScreen() {
         { event_id: eventId, scheduled_at: form.bellTime, type: 'bell' },
       ]);
 
+      for (const contact of form.guestEmails) {
+        const trimmed = contact.trim();
+        if (!trimmed) continue;
+        if (trimmed.includes('@')) {
+          await addGuestByHost(eventId, trimmed);
+        } else {
+          await addGuestByHostPhone(eventId, trimmed);
+        }
+      }
+
       if (!hasNavigatedRef.current) {
         hasNavigatedRef.current = true;
         router.replace(`/event/${eventId}`);
@@ -191,6 +339,23 @@ export default function CreateDinnerScreen() {
 
       {step === 0 && (
         <>
+          {templates.length > 0 && (
+            <>
+              <Text style={styles.label}>Start from template</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templateScroll} contentContainerStyle={styles.templateScrollContent}>
+                {templates.map((t) => (
+                  <Pressable
+                    key={t.id}
+                    style={[styles.templateCard, { borderColor: t.theme_slug && THEME_ACCENT[t.theme_slug] ? THEME_ACCENT[t.theme_slug] : colors.inputBorder, backgroundColor: t.theme_slug && THEME_ACCENT[t.theme_slug] ? `${THEME_ACCENT[t.theme_slug]}18` : colors.card }]}
+                    onPress={() => applyTemplate(t)}
+                  >
+                    <Text style={[styles.templateCardTitle, { color: colors.text }]}>{t.name}</Text>
+                    {t.description ? <Text style={[styles.templateCardDesc, { color: colors.secondaryText }]} numberOfLines={2}>{t.description}</Text> : null}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </>
+          )}
           <Text style={styles.label}>Title</Text>
           <TextInput
             style={inputStyle}
@@ -249,6 +414,10 @@ export default function CreateDinnerScreen() {
             placeholder="YYYY-MM-DDTHH:mm"
             placeholderTextColor="#888"
           />
+          <View style={styles.toggleRow}>
+            <Text style={styles.toggleLabel}>List in Discover (public event)</Text>
+            <Switch value={form.isPublic ?? false} onValueChange={(v) => updateForm({ isPublic: v })} trackColor={{ false: colors.inputBorder, true: colors.primaryButton }} thumbColor="#fff" />
+          </View>
         </>
       )}
 
@@ -377,6 +546,30 @@ export default function CreateDinnerScreen() {
 
       {step === 3 && (
         <>
+          <Text style={styles.label}>Quick add</Text>
+          <View style={styles.quickAddRow}>
+            {[
+              { name: 'Drinks', category: 'drink' as const },
+              { name: 'Dessert', category: 'dessert' as const },
+              { name: 'Ice', category: 'supplies' as const },
+              { name: 'Plates', category: 'supplies' as const },
+            ].map(({ name, category }) => (
+              <Pressable
+                key={name}
+                style={[styles.quickAddChip, { borderColor: colors.inputBorder }]}
+                onPress={() =>
+                  updateForm({
+                    bringItems: [
+                      ...form.bringItems,
+                      { id: generateId(), name, quantity: '1', category, isRequired: false, isClaimable: true, notes: '' },
+                    ],
+                  })
+                }
+              >
+                <Text style={[styles.quickAddChipText, { color: colors.tint }]}>{name}</Text>
+              </Pressable>
+            ))}
+          </View>
           {form.bringItems.map((item, ii) => (
             <View key={item.id} style={styles.bringItemBlock}>
               <View style={styles.bringRow}>
@@ -469,12 +662,33 @@ export default function CreateDinnerScreen() {
             placeholderTextColor="#888"
             multiline
           />
-          <Text style={styles.label}>Guest emails (one per line or comma-separated)</Text>
+          {groups.length > 0 && (
+            <>
+              <Text style={styles.label}>Invite a group</Text>
+              <View style={styles.quickAddRow}>
+                {groups.map((g) => (
+                  <Pressable
+                    key={g.id}
+                    style={[styles.quickAddChip, { borderColor: colors.inputBorder }]}
+                    onPress={async () => {
+                      const members = await getGroupMembers(g.id);
+                      const contacts = members.map((m) => m.contact_value.trim()).filter(Boolean);
+                      const combined = [...new Set([...form.guestEmails, ...contacts])];
+                      updateForm({ guestEmails: combined });
+                    }}
+                  >
+                    <Text style={[styles.quickAddChipText, { color: colors.tint }]}>{g.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
+          <Text style={styles.label}>Guests (email or phone, one per line or comma-separated)</Text>
           <TextInput
             style={[inputStyle, styles.textArea]}
             value={form.guestEmails.join(', ')}
             onChangeText={(t: string) => updateForm({ guestEmails: t.split(/[\n,]/).map((e: string) => e.trim()).filter(Boolean) })}
-            placeholder="email@example.com"
+            placeholder="email@example.com or 5551234567"
             placeholderTextColor="#888"
             multiline
           />
@@ -550,6 +764,9 @@ const styles = StyleSheet.create({
   itemText: { fontSize: 14, marginBottom: 4 },
   row: { marginBottom: 8 },
   bringRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  quickAddRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  quickAddChip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, borderWidth: 1 },
+  quickAddChipText: { fontSize: 14, fontWeight: '500' },
   bringItemBlock: { marginBottom: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(128,128,128,0.2)' },
   categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
   categoryBtn: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: '#ccc' },
@@ -576,4 +793,11 @@ const styles = StyleSheet.create({
   btnSecondary: { padding: 16, borderRadius: 8, alignItems: 'center', borderWidth: 1 },
   btnSecondaryText: { fontWeight: '600' },
   btnDisabled: { opacity: 0.6 },
+  templateScroll: { marginHorizontal: -20, marginBottom: 16 },
+  templateScrollContent: { paddingHorizontal: 20, gap: 12 },
+  templateCard: { width: 140, padding: 12, borderRadius: 12, borderWidth: 1 },
+  templateCardTitle: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
+  templateCardDesc: { fontSize: 12 },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  toggleLabel: { fontSize: 14, flex: 1 },
 });

@@ -14,16 +14,31 @@ export function DeepLinkHandler() {
       const parsed = Linking.parse(url);
       const path = (parsed.path ?? '').replace(/^\/+/, '');
       const query = parsed.queryParams ?? {};
+      const action = (query?.action as string) ?? '';
+      const guestId = (query?.guestId as string) ?? '';
       let target: string | null = null;
       if (path.startsWith('invite/')) {
         const id = path.replace('invite/', '').split('/')[0];
         const token = (query?.token as string) ?? '';
-        if (id && token) target = `/invite/${id}?token=${token}`;
+        if (id && token) {
+          const params = new URLSearchParams({ token });
+          if (action) params.set('action', action);
+          if (guestId) params.set('guestId', guestId);
+          target = `/invite/${id}?${params.toString()}`;
+        }
       } else if (path.startsWith('event/')) {
         const parts = path.replace('event/', '').split('/');
         const id = parts[0];
-        if (id && parts[1] === 'bell') target = `/event/${id}/bell`;
-        else if (id) target = `/event/${id}`;
+        if (id && parts[1] === 'bell') {
+          const message = (query?.message as string) ?? '';
+          const q = message ? `?message=${encodeURIComponent(message)}` : '';
+          target = `/event/${id}/bell${q}`;
+        } else if (id) {
+          const params = new URLSearchParams();
+          if (guestId) params.set('guestId', guestId);
+          if (action) params.set('action', action);
+          target = params.toString() ? `/event/${id}?${params.toString()}` : `/event/${id}`;
+        }
       }
       if (!target) return;
       const current = pathnameRef.current ?? '';

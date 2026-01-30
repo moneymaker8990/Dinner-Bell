@@ -83,4 +83,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
+  guestActions: { marginTop: 24, gap: 12 },
+  guestBtn: { paddingVertical: 12, alignItems: 'center' },
+  guestBtnText: { fontSize: 15, fontWeight: '500' },
 });

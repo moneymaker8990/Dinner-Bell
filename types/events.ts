@@ -1,4 +1,4 @@
-import type { BringItemCategory, BringItemStatus, RsvpStatus } from './database';
+import type { ArrivalStatus, BringItemCategory, BringItemStatus, RsvpStatus } from './database';
 
 export interface EventWithDetails {
   id: string;
@@ -19,6 +19,10 @@ export interface EventWithDetails {
   location_notes: string | null;
   invite_token: string;
   is_cancelled: boolean;
+  theme_slug?: string | null;
+  accent_color?: string | null;
+  capacity?: number | null;
+  bell_sound?: string;
   created_at: string;
   updated_at: string;
 }
@@ -31,6 +35,10 @@ export interface EventGuest {
   guest_phone_or_email: string;
   rsvp_status: RsvpStatus;
   wants_reminders: boolean;
+  status_updated_at?: string | null;
+  arrival_status?: ArrivalStatus;
+  arrived_at?: string | null;
+  eta_minutes?: number | null;
   created_at: string;
   updated_at: string;
 }

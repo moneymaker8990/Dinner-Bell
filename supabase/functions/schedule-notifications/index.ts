@@ -16,6 +16,8 @@ serve(async (req) => {
     if (!due?.length) return new Response(JSON.stringify({ sent: 0 }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
     for (const row of due) {
+      const { data: eventRow } = row.type === 'bell' ? await supabase.from('events').select('bell_sound').eq('id', row.event_id).single() : { data: null };
+      const bellSound = (eventRow as { bell_sound?: string } | null)?.bell_sound ?? 'triangle';
       const { data: guests } = await supabase
         .from('event_guests')
         .select('user_id, rsvp_status, wants_reminders')
@@ -35,6 +37,7 @@ serve(async (req) => {
       const tokens = (profiles ?? []).map((p: { push_token: string | null }) => p.push_token).filter(Boolean) as string[];
       const title = row.type === 'bell' ? 'Dinner Bell!' : 'Reminder';
       const body = row.type === 'bell' ? 'Time to eat.' : row.type === 'reminder_2h' ? 'Your dinner is in 2 hours.' : 'Your dinner is coming up.';
+      const pushData: Record<string, string> = row.type === 'bell' ? { type: 'bell_ring', eventId: row.event_id, bellSound } : { type: 'reminder', eventId: row.event_id };
       for (const token of tokens) {
         await fetch(EXPO_PUSH_URL, {
           method: 'POST',
@@ -43,7 +46,7 @@ serve(async (req) => {
             to: token,
             title,
             body,
-            data: { type: row.type === 'bell' ? 'bell_ring' : 'reminder', eventId: row.event_id },
+            data: pushData,
           }),
         });
       }
