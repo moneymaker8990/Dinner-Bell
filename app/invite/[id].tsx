@@ -1,10 +1,10 @@
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { Copy } from '@/constants/Copy';
 import { hapticRsvp } from '@/lib/haptics';
 import { addGuestByInvite, getInvitePreview, type EventByInvite, type InvitePreview } from '@/lib/invite';
 import { notifyHostRsvpChange } from '@/lib/notifyHost';
-import { Copy } from '@/constants/Copy';
 import { supabase } from '@/lib/supabase';
 import type { RsvpStatus } from '@/types/database';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -271,6 +271,8 @@ export default function InviteScreen() {
           >
             <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{submitting ? 'Saving...' : 'Submit RSVP'}</Text>
           </Pressable>
+            </>
+          )}
         </>
       ) : (
         <Pressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push(`/event/${id}`)}>
