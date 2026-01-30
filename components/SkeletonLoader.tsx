@@ -2,7 +2,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { cardShadow, radius, spacing } from '@/constants/Theme';
 import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, View, ViewStyle } from 'react-native';
+import { Animated, Platform, StyleSheet, View, ViewStyle } from 'react-native';
 
 interface SkeletonLoaderProps {
   width?: number | `${number}%`;
@@ -21,16 +21,17 @@ export function SkeletonLoader({
   const colors = Colors[colorScheme];
   const opacity = useRef(new Animated.Value(0.3)).current;
 
+  const useNativeDriver = Platform.OS !== 'web';
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.6, useNativeDriver: true, duration: 700 }),
-        Animated.timing(opacity, { toValue: 0.3, useNativeDriver: true, duration: 700 }),
+        Animated.timing(opacity, { toValue: 0.6, useNativeDriver, duration: 700 }),
+        Animated.timing(opacity, { toValue: 0.3, useNativeDriver, duration: 700 }),
       ])
     );
     loop.start();
     return () => loop.stop();
-  }, [opacity]);
+  }, [opacity, useNativeDriver]);
 
   const bgColor = colorScheme === 'dark' ? colors.border : colors.border + '99';
 

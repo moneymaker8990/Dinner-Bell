@@ -3,7 +3,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { cardShadow, radius, spacing, typography } from '@/constants/Theme';
 import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, ViewStyle } from 'react-native';
+import { Animated, Platform, StyleSheet, ViewStyle } from 'react-native';
 
 export interface ToastMessage {
   id: string;
@@ -22,16 +22,17 @@ export function Toast({ message, onDismiss, duration = 3000, style }: ToastProps
   const colors = Colors[colorScheme];
   const opacity = useRef(new Animated.Value(0)).current;
 
+  const useNativeDriver = Platform.OS !== 'web';
   useEffect(() => {
     if (!message) return;
-    Animated.timing(opacity, { toValue: 1, useNativeDriver: true, duration: 200 }).start();
+    Animated.timing(opacity, { toValue: 1, useNativeDriver, duration: 200 }).start();
     const t = setTimeout(() => {
-      Animated.timing(opacity, { toValue: 0, useNativeDriver: true, duration: 200 }).start(() => {
+      Animated.timing(opacity, { toValue: 0, useNativeDriver, duration: 200 }).start(() => {
         onDismiss(message.id);
       });
     }, duration);
     return () => clearTimeout(t);
-  }, [message?.id, duration, onDismiss, opacity]);
+  }, [message?.id, duration, onDismiss, opacity, useNativeDriver]);
 
   if (!message) return null;
 

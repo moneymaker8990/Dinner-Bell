@@ -20,12 +20,23 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const handleSignIn = async () => {
+    if (!email.trim() || !password) {
+      setError('Enter your email and password.');
+      return;
+    }
     setLoading(true);
     setError(null);
-    const { error: e } = await supabase.auth.signInWithPassword({ email, password });
+    const { error: e } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     setLoading(false);
     if (e) {
-      setError(e.message);
+      const msg = e.message ?? '';
+      if (msg.toLowerCase().includes('anonymous')) {
+        setError('Please enter your email and password to sign in.');
+      } else if (msg.toLowerCase().includes('invalid') || e.status === 400) {
+        setError('Invalid email or password. Try again, or use Create account if you don\'t have one.');
+      } else {
+        setError(msg);
+      }
       return;
     }
     router.back();
@@ -44,12 +55,41 @@ export default function SignInScreen() {
   };
 
   const handleSignUp = async () => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
+      setError('Enter an email and password (at least 6 characters).');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+    // Basic email format check so we get a clear error before hitting Supabase
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
     setLoading(true);
     setError(null);
-    const { error: e } = await supabase.auth.signUp({ email, password });
+    const redirectUrl = typeof window !== 'undefined' ? window.location.origin : undefined;
+    const { error: e } = await supabase.auth.signUp({
+      email: trimmedEmail,
+      password,
+      options: redirectUrl ? { emailRedirectTo: redirectUrl } : undefined,
+    });
     setLoading(false);
     if (e) {
-      setError(e.message);
+      const msg = e.message ?? '';
+      if (msg.toLowerCase().includes('anonymous')) {
+        setError('Please enter your email and password (at least 6 characters) to create an account.');
+      } else if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already been registered')) {
+        setError('This email is already registered. Use Sign in instead.');
+      } else if (e.status === 422) {
+        // Show Supabase's actual message so we see "invalid format", "confirmation mail", etc.
+        setError(msg || 'Sign-up was rejected. Check your email format and password, or try Sign in if you already have an account.');
+      } else {
+        setError(msg);
+      }
       return;
     }
     router.back();

@@ -89,6 +89,11 @@ You can do this in one of two ways: **Dashboard (SQL Editor)** or **Supabase CLI
 
 For **dev sign-in** (optional): create a test user under **Authentication → Users → Add user** and use that email/password in `.env` as `EXPO_PUBLIC_DEV_EMAIL` and `EXPO_PUBLIC_DEV_PASSWORD`.
 
+**If "Create account" returns 422 (Unprocessable Content):**
+- The app now shows Supabase’s real error message. Check it for hints (e.g. "invalid format", "confirmation mail").
+- Under **Authentication → URL Configuration**, add your web origin to **Redirect URLs** (e.g. `https://your-app.vercel.app` or `http://localhost:8081`).
+- If you use **Confirm email**, either configure **SMTP** under **Project Settings → Auth** or temporarily turn off **Confirm email** under **Authentication → Providers → Email** to test sign-up.
+
 ---
 
 ## Step 5: Configure the app with your Supabase credentials
