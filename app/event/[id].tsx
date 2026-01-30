@@ -154,7 +154,7 @@ export default function EventDetailScreen() {
       setLoading(false);
     };
     fetch();
-  }, [id, user, urlGuestId]);
+  }, [id, user?.id ?? null, urlGuestId]);
 
   useEffect(() => {
     if (!id || id === '__demo__') return;

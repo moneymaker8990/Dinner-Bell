@@ -80,7 +80,7 @@ export default function HomeScreen() {
     setNextEvent(guestEvents?.[0] ? (guestEvents[0] as EventWithDetails) : null);
     setLoading(false);
     setRefreshing(false);
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user) {
@@ -90,7 +90,7 @@ export default function HomeScreen() {
     }
     setLoading(true);
     fetchNextEvent();
-  }, [user, fetchNextEvent]);
+  }, [user?.id, fetchNextEvent]);
 
   const onRefresh = useCallback(() => {
     if (!isSignedIn) return;

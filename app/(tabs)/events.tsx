@@ -95,7 +95,7 @@ export default function EventsScreen() {
 
     setLoading(false);
     setRefreshing(false);
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user) {
@@ -106,13 +106,13 @@ export default function EventsScreen() {
     }
     setLoading(true);
     fetchEvents();
-  }, [user, fetchEvents]);
+  }, [user?.id, fetchEvents]);
 
   const onRefresh = useCallback(() => {
     if (!user) return;
     setRefreshing(true);
     fetchEvents();
-  }, [user, fetchEvents]);
+  }, [user?.id, fetchEvents]);
 
   const handleCreateDemo = useCallback(() => {
     const demo = createDemoEvent();

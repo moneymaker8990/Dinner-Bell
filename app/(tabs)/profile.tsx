@@ -71,7 +71,7 @@ export default function ProfileScreen() {
       setClaimedCount(claimed ?? 0);
     };
     fetchStats();
-  }, [user]);
+  }, [user?.id]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();

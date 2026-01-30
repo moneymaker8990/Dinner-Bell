@@ -8,7 +8,7 @@ import type { BringItemCategory } from '@/types/database';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Switch, TextInput } from 'react-native';
 
 const STEPS = ['Basics', 'Location', 'Menu', 'Bring List', 'Invite', 'Review'];
@@ -52,6 +52,7 @@ export default function CreateDinnerScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showBellPicker, setShowBellPicker] = useState(false);
+  const hasNavigatedRef = useRef(false);
 
   const updateForm = useCallback((updates: Partial<CreateEventForm>) => {
     setForm((prev) => ({ ...prev, ...updates }));
@@ -173,7 +174,10 @@ export default function CreateDinnerScreen() {
         { event_id: eventId, scheduled_at: form.bellTime, type: 'bell' },
       ]);
 
-      router.replace(`/event/${eventId}`);
+      if (!hasNavigatedRef.current) {
+        hasNavigatedRef.current = true;
+        router.replace(`/event/${eventId}`);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Something went wrong');
     } finally {

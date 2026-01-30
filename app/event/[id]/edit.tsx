@@ -126,7 +126,7 @@ export default function EditEventScreen() {
       setLoading(false);
     };
     fetch();
-  }, [id, user]);
+  }, [id, user?.id]);
 
   const handleSubmit = async () => {
     if (!form || !id || !user) return;

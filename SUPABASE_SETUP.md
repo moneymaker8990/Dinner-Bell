@@ -94,6 +94,9 @@ For **dev sign-in** (optional): create a test user under **Authentication → Us
 - Under **Authentication → URL Configuration**, add your web origin to **Redirect URLs** (e.g. `https://your-app.vercel.app` or `http://localhost:8081`).
 - If you use **Confirm email**, either configure **SMTP** under **Project Settings → Auth** or temporarily turn off **Confirm email** under **Authentication → Providers → Email** to test sign-up.
 
+**If you see "infinite recursion detected in policy for relation events" or 500 errors on events/event_guests:**
+- Run the RLS fix migration: in **SQL Editor**, open `supabase/migrations/007_fix_rls_recursion.sql`, copy its contents, and run it. This replaces the policies that cross-reference `events` and `event_guests` with helpers that avoid recursion.
+
 ---
 
 ## Step 5: Configure the app with your Supabase credentials
