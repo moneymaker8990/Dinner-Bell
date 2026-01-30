@@ -11,6 +11,7 @@ import { createDemoEvent } from '@/lib/demoEvent';
 import { hapticSuccess, hapticTap } from '@/lib/haptics';
 import { addGuestByHost, addGuestByHostPhone, normalizePhoneForLookup, sendInvitePush, sendInvitePushByPhone } from '@/lib/invite';
 import { supabase } from '@/lib/supabase';
+import { useContactsPicker } from '@/lib/useContactsPicker';
 import type { BringItemRow, EventGuest, EventWithDetails, MenuItemRow, MenuSection, ScheduleBlockRow } from '@/types/events';
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -63,12 +64,8 @@ export default function EventDetailScreen() {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [invitePhone, setInvitePhone] = useState('');
   const [invitePhoneName, setInvitePhoneName] = useState('');
-  const [contactsModalVisible, setContactsModalVisible] = useState(false);
-  const [contactsList, setContactsList] = useState<{ id: string; name: string; phone: string }[]>([]);
-  const [contactsLoading, setContactsLoading] = useState(false);
-  const [contactsError, setContactsError] = useState<string | null>(null);
-  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [addingFromContacts, setAddingFromContacts] = useState(false);
+  const contactsPicker = useContactsPicker();
   const [dietaryFilter, setDietaryFilter] = useState<string | null>(null);
   const [chatVisible, setChatVisible] = useState(false);
   const [messages, setMessages] = useState<{ id: string; user_id: string; body: string; created_at: string }[]>([]);
@@ -330,67 +327,12 @@ export default function EventDetailScreen() {
     setInviteModalVisible(true);
   };
 
-  const openContactsPicker = useCallback(async () => {
-    if (isWeb) return;
-    setContactsError(null);
-    setContactsLoading(true);
-    setContactsList([]);
-    setSelectedContactIds(new Set());
-    setContactsModalVisible(true);
-    try {
-      const Contacts = await import('expo-contacts');
-      const { status } = await Contacts.requestPermissionsAsync();
-      if (status !== 'granted') {
-        setContactsError('Contacts access is needed to invite from your contacts. You can enable it in Settings.');
-        setContactsLoading(false);
-        return;
-      }
-      const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.PhoneNumbers],
-        sort: Contacts.SortTypes.FirstName,
-      });
-      const withPhones = data
-        .filter((c) => c.phoneNumbers && c.phoneNumbers.length > 0)
-        .map((c) => {
-          const number = c.phoneNumbers![0].number ?? c.phoneNumbers![0].digits ?? '';
-          const normalized = normalizePhoneForLookup(number);
-          if (normalized.length < 10) return null;
-          return {
-            id: c.id,
-            name: [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Unknown',
-            phone: normalized,
-          };
-        })
-        .filter((c): c is { id: string; name: string; phone: string } => c !== null);
-      const seen = new Set<string>();
-      const deduped = withPhones.filter((c) => {
-        if (seen.has(c.phone)) return false;
-        seen.add(c.phone);
-        return true;
-      });
-      setContactsList(deduped);
-    } catch (e) {
-      setContactsError('Could not load contacts.');
-    } finally {
-      setContactsLoading(false);
-    }
-  }, [isWeb]);
-
-  const toggleContactSelection = useCallback((id: string) => {
-    setSelectedContactIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
   const handleAddSelectedFromContacts = async () => {
-    if (!id || selectedContactIds.size === 0) return;
+    if (!id || contactsPicker.selectedIds.size === 0) return;
     setAddingFromContacts(true);
     let added = 0;
-    for (const contact of contactsList) {
-      if (!selectedContactIds.has(contact.id)) continue;
+    for (const contact of contactsPicker.contactsList) {
+      if (!contactsPicker.selectedIds.has(contact.id)) continue;
       const guestId = await addGuestByHostPhone(id, contact.phone, contact.name);
       if (guestId) {
         added += 1;
@@ -398,8 +340,8 @@ export default function EventDetailScreen() {
       }
     }
     setAddingFromContacts(false);
-    setContactsModalVisible(false);
-    setSelectedContactIds(new Set());
+    contactsPicker.setModalVisible(false);
+    contactsPicker.setSelectedIds(new Set());
     supabase.from('event_guests').select('*').eq('event_id', id).then(({ data }) => setGuests(data ?? []));
     toast.show(added > 0 ? `Added ${added} guest${added > 1 ? 's' : ''}; push sent to those who have the app.` : 'No guests added.');
   };
@@ -514,6 +456,11 @@ export default function EventDetailScreen() {
           <Pressable style={styles.buttonSecondary} onPress={openInviteModal}>
             <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Invite more</Text>
           </Pressable>
+          {!isWeb && (
+            <Pressable style={styles.buttonSecondary} onPress={contactsPicker.openPicker}>
+              <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Add from contacts</Text>
+            </Pressable>
+          )}
           {isHost && (
             <Pressable style={styles.cancelEventBtn} onPress={handleCancelEvent}>
               <Text style={styles.cancelEventText}>Cancel event</Text>
@@ -762,7 +709,7 @@ export default function EventDetailScreen() {
                 <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{inviteSubmitting ? 'Adding...' : 'Add & send invite'}</Text>
               </Pressable>
               {!isWeb && (
-                <Pressable style={styles.buttonSecondary} onPress={openContactsPicker}>
+                <Pressable style={styles.buttonSecondary} onPress={contactsPicker.openPicker}>
                   <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Add from contacts</Text>
                 </Pressable>
               )}
@@ -844,45 +791,45 @@ export default function EventDetailScreen() {
       </Modal>
 
       {isHost && !isWeb && (
-        <Modal visible={contactsModalVisible} transparent animationType="fade">
-          <Pressable style={styles.modalOverlay} onPress={() => !addingFromContacts && setContactsModalVisible(false)}>
+        <Modal visible={contactsPicker.modalVisible} transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => !addingFromContacts && contactsPicker.setModalVisible(false)}>
             <Pressable style={[styles.modalContent, styles.contactsModalContent, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
               <Text style={styles.modalTitle}>Add from contacts</Text>
-              {contactsError ? (
-                <Text style={styles.errorText}>{contactsError}</Text>
-              ) : contactsLoading ? (
+              {contactsPicker.contactsError ? (
+                <Text style={styles.errorText}>{contactsPicker.contactsError}</Text>
+              ) : contactsPicker.contactsLoading ? (
                 <Text style={styles.body}>Loading contacts...</Text>
-              ) : contactsList.length === 0 ? (
+              ) : contactsPicker.contactsList.length === 0 ? (
                 <Text style={styles.body}>No contacts with phone numbers found.</Text>
               ) : (
                 <>
                   <FlatList
-                    data={contactsList}
+                    data={contactsPicker.contactsList}
                     keyExtractor={(item) => item.id}
                     style={styles.contactsList}
                     renderItem={({ item }) => (
                       <Pressable
                         style={[styles.contactRow, { borderColor: colors.inputBorder }]}
-                        onPress={() => toggleContactSelection(item.id)}
+                        onPress={() => contactsPicker.toggleSelection(item.id)}
                       >
                         <Text style={styles.contactRowName}>{item.name}</Text>
                         <Text style={styles.contactRowPhone}>{item.phone}</Text>
-                        <View style={[styles.checkbox, selectedContactIds.has(item.id) && { backgroundColor: colors.tint }]} />
+                        <View style={[styles.checkbox, contactsPicker.selectedIds.has(item.id) && { backgroundColor: colors.tint }]} />
                       </Pressable>
                     )}
                   />
                   <Pressable
-                    style={[styles.button, { backgroundColor: colors.primaryButton }, (addingFromContacts || selectedContactIds.size === 0) && styles.buttonDisabled]}
+                    style={[styles.button, { backgroundColor: colors.primaryButton }, (addingFromContacts || contactsPicker.selectedIds.size === 0) && styles.buttonDisabled]}
                     onPress={handleAddSelectedFromContacts}
-                    disabled={addingFromContacts || selectedContactIds.size === 0}
+                    disabled={addingFromContacts || contactsPicker.selectedIds.size === 0}
                   >
                     <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>
-                      {addingFromContacts ? 'Adding...' : `Add selected (${selectedContactIds.size})`}
+                      {addingFromContacts ? 'Adding...' : `Add selected (${contactsPicker.selectedIds.size})`}
                     </Text>
                   </Pressable>
                 </>
               )}
-              <Pressable style={styles.modalCancel} onPress={() => !addingFromContacts && setContactsModalVisible(false)}>
+              <Pressable style={styles.modalCancel} onPress={() => !addingFromContacts && contactsPicker.setModalVisible(false)}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </Pressable>
             </Pressable>

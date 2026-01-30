@@ -7,12 +7,13 @@ import { fetchGroups, getGroupMembers, type GuestGroup } from '@/lib/groups';
 import { addGuestByHost, addGuestByHostPhone } from '@/lib/invite';
 import { supabase } from '@/lib/supabase';
 import { fetchTemplates, THEME_ACCENT, type EventTemplate } from '@/lib/templates';
+import { useContactsPicker } from '@/lib/useContactsPicker';
 import type { BringItemCategory } from '@/types/database';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Switch, TextInput } from 'react-native';
+import { FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, TextInput } from 'react-native';
 
 const STEPS = ['Basics', 'Location', 'Menu', 'Bring List', 'Invite', 'Review'];
 const TOTAL_STEPS = 6;
@@ -60,6 +61,7 @@ export default function CreateDinnerScreen() {
   const [groups, setGroups] = useState<GuestGroup[]>([]);
   const [templates, setTemplates] = useState<EventTemplate[]>([]);
   const hasNavigatedRef = useRef(false);
+  const contactsPicker = useContactsPicker();
 
   useEffect(() => {
     if (!user) return;
@@ -331,6 +333,17 @@ export default function CreateDinnerScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleAddSelectedContactsToGuests = () => {
+    if (contactsPicker.selectedIds.size === 0) return;
+    const phones = contactsPicker.contactsList
+      .filter((c) => contactsPicker.selectedIds.has(c.id))
+      .map((c) => c.phone);
+    const combined = [...new Set([...form.guestEmails, ...phones])];
+    updateForm({ guestEmails: combined });
+    contactsPicker.setModalVisible(false);
+    contactsPicker.setSelectedIds(new Set());
   };
 
   return (
@@ -683,6 +696,11 @@ export default function CreateDinnerScreen() {
               </View>
             </>
           )}
+          {Platform.OS !== 'web' && (
+            <Pressable style={[styles.buttonSecondary, { borderColor: colors.inputBorder }]} onPress={contactsPicker.openPicker}>
+              <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Add from contacts</Text>
+            </Pressable>
+          )}
           <Text style={styles.label}>Guests (email or phone, one per line or comma-separated)</Text>
           <TextInput
             style={[inputStyle, styles.textArea]}
@@ -718,6 +736,53 @@ export default function CreateDinnerScreen() {
       )}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      {Platform.OS !== 'web' && (
+        <Modal visible={contactsPicker.modalVisible} transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => contactsPicker.setModalVisible(false)}>
+            <Pressable style={[styles.modalContent, styles.contactsModalContent, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.modalTitle}>Add from contacts</Text>
+              {contactsPicker.contactsError ? (
+                <Text style={styles.modalError}>{contactsPicker.contactsError}</Text>
+              ) : contactsPicker.contactsLoading ? (
+                <Text style={styles.hint}>Loading contacts...</Text>
+              ) : contactsPicker.contactsList.length === 0 ? (
+                <Text style={styles.hint}>No contacts with phone numbers found.</Text>
+              ) : (
+                <>
+                  <FlatList
+                    data={contactsPicker.contactsList}
+                    keyExtractor={(item) => item.id}
+                    style={styles.contactsList}
+                    renderItem={({ item }) => (
+                      <Pressable
+                        style={[styles.contactRow, { borderColor: colors.inputBorder }]}
+                        onPress={() => contactsPicker.toggleSelection(item.id)}
+                      >
+                        <Text style={styles.contactRowName}>{item.name}</Text>
+                        <Text style={styles.contactRowPhone}>{item.phone}</Text>
+                        <View style={[styles.checkbox, contactsPicker.selectedIds.has(item.id) && { backgroundColor: colors.tint }]} />
+                      </Pressable>
+                    )}
+                  />
+                  <Pressable
+                    style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }, contactsPicker.selectedIds.size === 0 && styles.btnDisabled]}
+                    onPress={handleAddSelectedContactsToGuests}
+                    disabled={contactsPicker.selectedIds.size === 0}
+                  >
+                    <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>
+                      Add selected ({contactsPicker.selectedIds.size})
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+              <Pressable style={styles.modalCancel} onPress={() => contactsPicker.setModalVisible(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
 
       <View style={styles.footer}>
         {step > 0 && (
@@ -800,4 +865,16 @@ const styles = StyleSheet.create({
   templateCardDesc: { fontSize: 12 },
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   toggleLabel: { fontSize: 14, flex: 1 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modalContent: { borderRadius: 16, padding: 24, width: '100%', maxWidth: 340 },
+  modalTitle: { fontSize: 20, fontWeight: '600', marginBottom: 16 },
+  modalError: { color: '#c00', marginBottom: 8 },
+  modalCancel: { padding: 12, alignItems: 'center', marginTop: 8 },
+  modalCancelText: { fontWeight: '500' },
+  contactsModalContent: { maxHeight: '80%' },
+  contactsList: { maxHeight: 280, marginBottom: 12 },
+  contactRow: { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1 },
+  contactRowName: { flex: 1, fontSize: 16, fontWeight: '500' },
+  contactRowPhone: { fontSize: 14, opacity: 0.8, marginRight: 12 },
+  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#888' },
 });
