@@ -1,4 +1,4 @@
--- Create event via RPC so we don't rely on RLS for INSERT (avoids 403 when session/RLS is inconsistent).
+-- Create event via RPC so we don't rely on RLS for INSERT (avoids 403 when session/RLS is inconsistent). Deploy trigger.
 CREATE OR REPLACE FUNCTION public.create_event(
   p_title TEXT,
   p_description TEXT DEFAULT NULL,
