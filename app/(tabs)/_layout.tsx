@@ -6,6 +6,7 @@ import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { spacing, typography } from '@/constants/Theme';
 import { Platform } from 'react-native';
 
 function TabBarIcon(props: {
@@ -40,7 +41,7 @@ export default function TabLayout() {
           borderTopWidth: 1,
           ...Platform.select({
             ios: {
-              shadowColor: '#6B645C',
+              shadowColor: colors.shadow,
               shadowOffset: { width: 0, height: -2 },
               shadowOpacity: 0.04,
               shadowRadius: 8,
@@ -48,13 +49,13 @@ export default function TabLayout() {
             android: { elevation: 8 },
             default: {},
           }),
-          paddingTop: 4,
+          paddingTop: spacing.xs,
           height: Platform.OS === 'ios' ? 88 : 64,
         },
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: typography.microLabel,
           fontWeight: '600',
-          marginTop: 2,
+          marginTop: spacing.xs / 2,
         },
       }}>
       <Tabs.Screen

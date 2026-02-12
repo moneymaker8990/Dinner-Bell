@@ -1,27 +1,50 @@
+import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { CelebrationOverlay } from '@/components/CelebrationOverlay';
+import { FloatingLabelInput } from '@/components/FloatingLabelInput';
+import { GradientHeader } from '@/components/GradientHeader';
+import { KeyboardAwareScrollView } from '@/components/KeyboardAwareScrollView';
+import { SkeletonLoader } from '@/components/SkeletonLoader';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { Copy } from '@/constants/Copy';
+import { fontWeight, lineHeight, radius, spacing, typography } from '@/constants/Theme';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { trackInviteOpened, trackRsvpSubmitted, trackShareInitiated } from '@/lib/analytics';
 import { hapticRsvp } from '@/lib/haptics';
 import { addGuestByInvite, getInvitePreview, type EventByInvite, type InvitePreview } from '@/lib/invite';
 import { notifyHostRsvpChange } from '@/lib/notifyHost';
 import { supabase } from '@/lib/supabase';
 import type { RsvpStatus } from '@/types/database';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, Share, StyleSheet, Switch, TextInput } from 'react-native';
+import { Share, StyleSheet, Switch } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 function fullAddress(e: EventByInvite): string {
   const parts = [e.address_line1, e.address_line2, e.city, e.state, e.postal_code, e.country].filter(Boolean);
   return parts.join(', ');
 }
 
-const RSVP_OPTIONS: { value: RsvpStatus; label: string }[] = [
-  { value: 'going', label: 'Going' },
-  { value: 'late', label: 'Running late' },
-  { value: 'maybe', label: 'Maybe' },
-  { value: 'cant', label: "Can't make it" },
+const RSVP_OPTIONS: { value: RsvpStatus; label: keyof typeof Copy.invite }[] = [
+  { value: 'going', label: 'rsvpGoing' },
+  { value: 'late', label: 'rsvpLate' },
+  { value: 'maybe', label: 'rsvpMaybe' },
+  { value: 'cant', label: 'rsvpCant' },
 ];
+const RSVP_ACCENT_KEY: Record<RsvpStatus, keyof typeof Colors.light> = {
+  going: 'rsvpGoing',
+  late: 'rsvpLate',
+  maybe: 'rsvpMaybe',
+  cant: 'rsvpCant',
+};
+const RSVP_ICONS: Record<RsvpStatus, keyof typeof Ionicons.glyphMap> = {
+  going: 'checkmark-circle-outline',
+  late: 'time-outline',
+  maybe: 'help-circle-outline',
+  cant: 'close-circle-outline',
+};
 
 export default function InviteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -42,7 +65,9 @@ export default function InviteScreen() {
   const [guestId, setGuestId] = useState<string | null>(null);
   const [waitlistJoined, setWaitlistJoined] = useState(false);
   const [waitlistSubmitting, setWaitlistSubmitting] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
   const oneTapDone = useRef(false);
+  const reduceMotion = useReducedMotion();
 
   const event = preview?.event ?? null;
   const capacity = (event as EventByInvite & { capacity?: number | null })?.capacity;
@@ -59,6 +84,7 @@ export default function InviteScreen() {
       setPreview(p ?? null);
       setError(p ? null : 'Invite invalid or expired');
       setLoading(false);
+      if (p) trackInviteOpened(id, 'direct_link');
     });
   }, [id, token]);
 
@@ -94,13 +120,20 @@ export default function InviteScreen() {
     setGuestId(gid ?? null);
     setSubmitting(false);
     if (gid) {
+      trackRsvpSubmitted(id!, rsvpStatus, 'guest');
       notifyHostRsvpChange(id!, guestName.trim()).catch(() => {});
-      router.push(`/event/${id}?guestId=${gid}`);
+      if (rsvpStatus === 'going') {
+        setShowCelebration(true);
+        setTimeout(() => router.push(`/event/${id}?guestId=${gid}`), 2200);
+      } else {
+        router.push(`/event/${id}?guestId=${gid}`);
+      }
     }
   };
 
   const handleShare = async () => {
     if (!event) return;
+    trackShareInitiated(id!, 'invite_page');
     const url = `https://dinnerbell.app/invite/${id}?token=${token}`;
     await Share.share({ message: `You're invited to ${event.title}. RSVP: ${url}`, url });
   };
@@ -116,11 +149,30 @@ export default function InviteScreen() {
       display_name: guestName.trim() || null,
     });
     setWaitlistSubmitting(false);
-    if (!error) setWaitlistJoined(true);
+    if (!error) {
+      trackWaitlistJoined(id);
+      setWaitlistJoined(true);
+    }
   };
 
-  if (loading) return <Text style={styles.centered}>Loading...</Text>;
-  if (error || !event) return <Text style={styles.centered}>{error ?? 'Invite invalid or expired'}</Text>;
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <SkeletonLoader width="80%" height={24} style={{ marginBottom: spacing.md }} />
+        <SkeletonLoader width="60%" height={20} />
+        <SkeletonLoader width="90%" height={80} style={{ marginTop: spacing.xl }} />
+        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>{Copy.invite.loadingInvite}</Text>
+      </View>
+    );
+  }
+  if (error || !event) {
+    return (
+      <View style={[styles.container, styles.centered, { padding: spacing.xl }]}>
+        <Text style={[styles.errorTitle, { color: colors.textPrimary }]} accessibilityRole="header">{Copy.invite.invalidInvite}</Text>
+        <Text style={[styles.errorBody, { color: colors.textSecondary }]}>Check your link or ask the host for a new invite.</Text>
+      </View>
+    );
+  }
 
   const menuSectionsList = (preview?.menu_sections ?? [])
     .sort((a, b) => a.sort_order - b.sort_order)
@@ -141,26 +193,54 @@ export default function InviteScreen() {
     setSubmitting(false);
     if (gid) {
       notifyHostRsvpChange(id!, name).catch(() => {});
-      router.push(`/event/${id}?guestId=${gid}`);
+      if (status === 'going') {
+        setShowCelebration(true);
+        setTimeout(() => router.push(`/event/${id}?guestId=${gid}`), 2200);
+      } else {
+        router.push(`/event/${id}?guestId=${gid}`);
+      }
     }
   };
 
+  const enterAnimation = (index: number) =>
+    reduceMotion ? undefined : FadeInDown.delay(index * 100).duration(400);
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={[styles.richCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Text style={styles.title}>{event.title}</Text>
-        {preview?.host_name ? <Text style={styles.hostBy}>Hosted by {preview.host_name}</Text> : null}
-        <Text style={styles.date}>{new Date(event.start_time).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</Text>
-        <Text style={styles.body}>{fullAddress(event)}</Text>
+    <View style={styles.container}>
+      <GradientHeader
+        title="You're invited!"
+        subtitle={event.title}
+        height={200}
+        onBack={() => router.canGoBack() && router.back()}
+        coverImageUrl={event?.cover_image_url}
+      />
+      <KeyboardAwareScrollView style={styles.scrollBody} contentContainerStyle={styles.content}>
+      <Animated.View entering={enterAnimation(0)} style={[styles.richCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        {preview?.host_name ? (
+          <Text style={[styles.hostBy, { color: colors.textSecondary }]}>{Copy.event.hostedBy(preview.host_name)}</Text>
+        ) : null}
+        <Animated.View entering={enterAnimation(1)} style={styles.infoRow}>
+          <Ionicons name="calendar-outline" size={18} color={colors.tint} style={styles.infoIcon} />
+          <Text style={styles.date}>{new Date(event.start_time).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</Text>
+        </Animated.View>
+        <Animated.View entering={enterAnimation(2)} style={styles.infoRow}>
+          <Ionicons name="location-outline" size={18} color={colors.tint} style={styles.infoIcon} />
+          <Text style={styles.body}>{fullAddress(event)}</Text>
+        </Animated.View>
         {event.location_notes ? <Text style={styles.notes}>{event.location_notes}</Text> : null}
         {(preview?.bring_items?.length ?? 0) > 0 && (
-          <Text style={styles.bringHighlights}>Bring: {bringHighlights || (preview!.bring_items.length > 1 ? `${preview!.bring_items.length} items` : preview!.bring_items[0].name)}</Text>
+          <Animated.View entering={enterAnimation(3)}>
+            <Text style={styles.bringHighlights}>Bring: {bringHighlights || (preview!.bring_items.length > 1 ? `${preview!.bring_items.length} items` : preview!.bring_items[0].name)}</Text>
+          </Animated.View>
         )}
-      </View>
+      </Animated.View>
 
+      {(menuSectionsList.length > 0 || (preview?.bring_items?.length ?? 0) > 0) && (
+        <Animated.View entering={enterAnimation(4)} style={styles.previewSection}>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]} accessibilityRole="header">{Copy.invite.whatToExpect}</Text>
       {menuSectionsList.length > 0 && (
-        <View style={styles.previewSection}>
-          <Text style={styles.sectionTitle}>Menu</Text>
+        <>
+          <Text style={[styles.subsectionTitle, { color: colors.textSecondary }]}>{Copy.common.menu}</Text>
           {menuSectionsList.map((sec, idx) => (
             <View key={idx}>
               <Text style={styles.subsectionTitle}>{sec.title}</Text>
@@ -182,147 +262,206 @@ export default function InviteScreen() {
               ))}
             </View>
           ))}
-        </View>
+        </>
       )}
       {(preview?.bring_items?.length ?? 0) > 0 && (
-        <View style={styles.previewSection}>
-          <Text style={styles.sectionTitle}>Bring list</Text>
+        <>
+          <Text style={[styles.subsectionTitle, { color: colors.textSecondary }]}>{Copy.common.bringList}</Text>
           {preview!.bring_items.map((item) => (
-            <Text key={item.id} style={styles.body}>• {item.name} ({item.quantity})</Text>
+            <Text key={item.id} style={[styles.body, { color: colors.textSecondary }]}>• {item.name} ({item.quantity})</Text>
           ))}
-        </View>
+        </>
+      )}
+        </Animated.View>
+      )}
+      {guestCount > 0 && (
+        <Animated.View entering={enterAnimation(5)}>
+          <Text style={[styles.whoGoing, { color: colors.textSecondary }]}>{Copy.invite.whoIsGoing(guestCount)}</Text>
+        </Animated.View>
       )}
 
       {!guestId ? (
         <>
           {isEventFull ? (
             <>
-              <Text style={[styles.eventFull, { color: colors.text }]}>This event is full</Text>
+              <Text style={[styles.eventFull, { color: colors.text }]} accessibilityRole="header">{Copy.invite.eventFull}</Text>
               {waitlistJoined ? (
-                <Text style={styles.waitlistDone}>You're on the waitlist. We'll notify you if a spot opens up.</Text>
+                <Text style={styles.waitlistDone}>{Copy.invite.onWaitlist}</Text>
               ) : (
                 <>
-                  <Text style={styles.sectionTitle}>Join the waitlist</Text>
-                  <TextInput
-                    style={[styles.input, { borderColor: colors.inputBorder }]}
+                  <Text style={styles.sectionTitle} accessibilityRole="header">{Copy.invite.joinWaitlist}</Text>
+                  <FloatingLabelInput
+                    label={Copy.placeholder.yourName}
                     value={guestName}
                     onChangeText={setGuestName}
-                    placeholder="Your name"
-                    placeholderTextColor="#888"
+                    onClear={() => setGuestName('')}
+                    returnKeyType="next"
+                    autoComplete="name"
+                    autoCapitalize="words"
+                    style={{ marginBottom: spacing.md }}
                   />
-                  <TextInput
-                    style={[styles.input, { borderColor: colors.inputBorder }]}
+                  <FloatingLabelInput
+                    label={Copy.placeholder.phoneOrEmail}
                     value={guestContact}
                     onChangeText={setGuestContact}
-                    placeholder="Phone or email"
-                    placeholderTextColor="#888"
+                    onClear={() => setGuestContact('')}
+                    returnKeyType="done"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    style={{ marginBottom: spacing.md }}
                   />
-                  <Pressable
+                  <AnimatedPressable
                     style={[styles.button, { backgroundColor: colors.primaryButton }, waitlistSubmitting && styles.buttonDisabled]}
                     onPress={handleJoinWaitlist}
                     disabled={waitlistSubmitting}
+                    accessibilityRole="button"
+                    accessibilityLabel="Join the waitlist"
                   >
-                    <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{waitlistSubmitting ? 'Joining...' : Copy.invite.joinWaitlist}</Text>
-                  </Pressable>
+                    <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{waitlistSubmitting ? Copy.invite.joining : Copy.invite.joinWaitlist}</Text>
+                  </AnimatedPressable>
                 </>
               )}
             </>
           ) : (
             <>
-          <Text style={styles.sectionTitle}>RSVP</Text>
-          <TextInput
-            style={[styles.input, { borderColor: colors.inputBorder }]}
+          <Text style={styles.sectionTitle} accessibilityRole="header">{Copy.invite.rsvp}</Text>
+          <FloatingLabelInput
+            label={Copy.placeholder.yourName}
             value={guestName}
             onChangeText={setGuestName}
-            placeholder="Your name"
-            placeholderTextColor="#888"
+            onClear={() => setGuestName('')}
+            returnKeyType="next"
+            autoComplete="name"
+            autoCapitalize="words"
+            style={{ marginBottom: spacing.md }}
           />
-          <TextInput
-            style={[styles.input, { borderColor: colors.inputBorder }]}
+          <FloatingLabelInput
+            label={Copy.placeholder.phoneOrEmail}
             value={guestContact}
             onChangeText={setGuestContact}
-            placeholder="Phone or email"
-            placeholderTextColor="#888"
+            onClear={() => setGuestContact('')}
+            returnKeyType="done"
+            autoComplete="email"
+            autoCapitalize="none"
+            style={{ marginBottom: spacing.md }}
           />
           <View style={styles.rsvpRow}>
-            {RSVP_OPTIONS.map(({ value, label }) => (
-              <Pressable
-                key={value}
-                style={[styles.rsvpBtn, rsvpStatus === value && { backgroundColor: colors.primaryButton, borderColor: colors.primaryButton }]}
-                onPress={() => {
-                  hapticRsvp();
-                  setRsvpStatus(value);
-                }}
-              >
-                <Text style={[styles.rsvpBtnText, rsvpStatus === value && { color: colors.primaryButtonText }]}>{label}</Text>
-              </Pressable>
-            ))}
+            {RSVP_OPTIONS.map(({ value, label }) => {
+              const accent = (colors as any)[RSVP_ACCENT_KEY[value]] as string;
+              const isSelected = rsvpStatus === value;
+              return (
+                <AnimatedPressable
+                  key={value}
+                  pressScale={0.94}
+                  style={[
+                    styles.rsvpBtn,
+                    { borderColor: colors.border },
+                    isSelected && { backgroundColor: accent, borderColor: accent },
+                  ]}
+                  onPress={() => {
+                    hapticRsvp();
+                    setRsvpStatus(value);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={Copy.invite[label]}
+                >
+                  <Ionicons
+                    name={RSVP_ICONS[value]}
+                    size={20}
+                    color={isSelected ? colors.primaryButtonText : colors.textPrimary}
+                    style={styles.rsvpBtnIcon}
+                  />
+                  <Text style={[styles.rsvpBtnText, { color: colors.textPrimary }, isSelected && { color: colors.primaryButtonText }]}>
+                    {Copy.invite[label]}
+                  </Text>
+                </AnimatedPressable>
+              );
+            })}
           </View>
           {(rsvpStatus === 'going' || rsvpStatus === 'maybe' || rsvpStatus === 'late') && (
             <View style={styles.toggleRow}>
-              <Text style={styles.toggleLabel}>Send me reminders</Text>
-              <Switch value={wantsReminders} onValueChange={setWantsReminders} />
+              <Text style={styles.toggleLabel}>{Copy.profile.sendReminders}</Text>
+              <Switch value={wantsReminders} onValueChange={setWantsReminders} accessibilityRole="switch" accessibilityLabel={Copy.profile.sendReminders} />
             </View>
           )}
-          <Pressable
+          <AnimatedPressable
+            pressScale={0.95}
             style={[styles.button, { backgroundColor: colors.primaryButton }, submitting && styles.buttonDisabled]}
             onPress={handleRsvp}
             disabled={submitting}
+            accessibilityRole="button"
+            accessibilityLabel="Submit your RSVP"
           >
-            <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{submitting ? 'Saving...' : 'Submit RSVP'}</Text>
-          </Pressable>
+            <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{submitting ? Copy.common.saving : Copy.invite.submitRsvp}</Text>
+          </AnimatedPressable>
             </>
           )}
         </>
       ) : (
-        <Pressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push(`/event/${id}`)}>
-          <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>View event</Text>
-        </Pressable>
+        <AnimatedPressable pressScale={0.95} style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push(`/event/${id}`)} accessibilityRole="button" accessibilityLabel="View event details">
+          <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.invite.viewEvent}</Text>
+        </AnimatedPressable>
       )}
 
-      <Pressable style={styles.buttonSecondary} onPress={handleShare}>
-        <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Share link</Text>
-      </Pressable>
-    </ScrollView>
+      <AnimatedPressable pressScale={0.96} style={styles.buttonSecondary} onPress={handleShare} accessibilityRole="button" accessibilityLabel="Share invite link">
+        <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.invite.shareCta}</Text>
+      </AnimatedPressable>
+    </KeyboardAwareScrollView>
+
+      <CelebrationOverlay
+        visible={showCelebration}
+        headline="You're in!"
+        subtitle="See you at dinner!"
+        onFinish={() => setShowCelebration(false)}
+        displayDuration={2000}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
-  centered: { flex: 1, textAlign: 'center', marginTop: 40 },
-  richCard: { padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 20 },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 4 },
-  hostBy: { fontSize: 14, opacity: 0.85, marginBottom: 8 },
-  date: { fontSize: 16, marginBottom: 8 },
-  body: { fontSize: 14, marginBottom: 4 },
-  notes: { fontSize: 14, opacity: 0.8, marginTop: 4, marginBottom: 4 },
-  bringHighlights: { fontSize: 13, opacity: 0.9, marginTop: 8 },
-  previewSection: { marginBottom: 20 },
-  sectionTitle: { fontSize: 18, fontWeight: '600', marginTop: 16, marginBottom: 8 },
-  subsectionTitle: { fontSize: 16, fontWeight: '500', marginTop: 8, marginBottom: 4 },
-  menuItemRow: { marginBottom: 6 },
-  dietaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4, marginLeft: 16 },
-  dietaryChip: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
-  dietaryChipText: { fontSize: 12, fontWeight: '500' },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  toggleLabel: { fontSize: 14 },
+  scrollBody: { flex: 1 },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl + spacing.sm },
+  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
+  infoIcon: { marginRight: spacing.sm },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: spacing.xxl + spacing.xl + spacing.xs },
+  loadingText: { fontSize: typography.meta, marginTop: spacing.lg },
+  errorTitle: { fontSize: typography.headline, fontWeight: '600', textAlign: 'center', marginBottom: spacing.sm },
+  errorBody: { fontSize: typography.body, textAlign: 'center', lineHeight: lineHeight.meta },
+  richCard: { padding: spacing.lg, borderRadius: radius.card, borderWidth: 1, marginBottom: spacing.xl },
+  title: { fontSize: typography.title, fontWeight: fontWeight.bold, marginBottom: spacing.xs },
+  hostBy: { fontSize: typography.meta, marginBottom: spacing.sm },
+  date: { fontSize: typography.body, marginBottom: spacing.sm },
+  body: { fontSize: typography.meta, marginBottom: spacing.xs },
+  notes: { fontSize: typography.meta, opacity: 0.8, marginTop: spacing.xs, marginBottom: spacing.xs },
+  bringHighlights: { fontSize: typography.microLabel, opacity: 0.9, marginTop: spacing.sm },
+  whoGoing: { fontSize: typography.meta, fontWeight: '500', marginBottom: spacing.lg, textAlign: 'center' },
+  previewSection: { marginBottom: spacing.xl },
+  sectionTitle: { fontSize: typography.headline, fontWeight: '600', marginTop: spacing.lg, marginBottom: spacing.sm },
+  subsectionTitle: { fontSize: typography.body, fontWeight: '500', marginTop: spacing.sm, marginBottom: spacing.xs },
+  menuItemRow: { marginBottom: spacing.xs + 2 },
+  dietaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs + 2, marginTop: spacing.xs, marginLeft: spacing.lg },
+  dietaryChip: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: spacing.xs + 2, borderWidth: 1 },
+  dietaryChipText: { fontSize: typography.microLabel, fontWeight: '500' },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
+  toggleLabel: { fontSize: typography.meta },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    marginBottom: 12,
+    borderRadius: radius.input,
+    padding: spacing.md,
+    fontSize: typography.body,
+    marginBottom: spacing.md,
   },
-  rsvpRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  rsvpBtn: { flex: 1, padding: 12, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: '#ccc' },
-  rsvpBtnText: { fontWeight: '600' },
-  eventFull: { fontSize: 18, fontWeight: '600', marginBottom: 12, textAlign: 'center' },
-  waitlistDone: { fontSize: 14, opacity: 0.9, marginBottom: 16, textAlign: 'center' },
-  button: { padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 8 },
-  buttonText: { fontWeight: '600' },
+  rsvpRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
+  rsvpBtn: { flex: 1, minWidth: '45%' as unknown as number, paddingVertical: spacing.lg, paddingHorizontal: spacing.md, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
+  rsvpBtnIcon: { marginBottom: spacing.xs },
+  rsvpBtnText: { fontWeight: fontWeight.semibold, fontSize: typography.meta },
+  eventFull: { fontSize: typography.headline, fontWeight: '600', marginBottom: spacing.md, textAlign: 'center' },
+  waitlistDone: { fontSize: typography.meta, opacity: 0.9, marginBottom: spacing.lg, textAlign: 'center' },
+  button: { padding: spacing.lg, borderRadius: radius.input, alignItems: 'center', marginTop: spacing.sm },
+  buttonText: { fontWeight: fontWeight.semibold, fontSize: typography.body },
   buttonDisabled: { opacity: 0.6 },
-  buttonSecondary: { padding: 16, alignItems: 'center', marginTop: 8 },
+  buttonSecondary: { padding: spacing.lg, alignItems: 'center', marginTop: spacing.sm },
   buttonSecondaryText: { fontWeight: '600' },
 });

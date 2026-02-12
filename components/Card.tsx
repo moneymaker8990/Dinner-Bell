@@ -1,7 +1,7 @@
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { cardShadow, radius, spacing } from '@/constants/Theme';
+import { cardShadow, radius, spacing, typography } from '@/constants/Theme';
 import { StyleSheet, ViewStyle } from 'react-native';
 
 interface CardProps {
@@ -22,6 +22,7 @@ export function Card({ children, style }: CardProps) {
           backgroundColor: colors.card,
           borderColor: colors.border,
           borderRadius: radius.card,
+          shadowColor: colors.shadow,
         },
         style,
       ]}
@@ -70,7 +71,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerTitleText: {
-    fontSize: 18,
+    fontSize: typography.h3,
     fontWeight: '600',
   },
   body: {

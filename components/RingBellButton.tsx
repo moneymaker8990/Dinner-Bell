@@ -1,6 +1,8 @@
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { radius, spacing, typography } from '@/constants/Theme';
+import { trackBellTriggered } from '@/lib/analytics';
 import { hapticBell } from '@/lib/haptics';
 import { triggerBellPush } from '@/lib/triggerBell';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -45,6 +47,7 @@ export function RingBellButton({ eventId, bellSound }: RingBellButtonProps) {
       return;
     }
     hapticBell();
+    trackBellTriggered(eventId);
     await triggerBellPush(eventId, defaultMessage);
     setLastRingAt(now);
     AsyncStorage.setItem(STORAGE_KEY(eventId), String(now));
@@ -66,6 +69,8 @@ export function RingBellButton({ eventId, bellSound }: RingBellButtonProps) {
       ]}
       onPress={handleRing}
       disabled={cooldownActive}
+      accessibilityRole="button"
+      accessibilityLabel={cooldownActive ? `Ring again in ${cooldownSec} seconds` : 'Ring dinner bell'}
     >
       <Text style={[styles.buttonText, { color: cooldownActive ? colors.textSecondary : colors.primaryButtonText }]}>
         {cooldownActive ? `Ring again in ${cooldownSec}s` : 'Ring Dinner Bell'}
@@ -76,12 +81,12 @@ export function RingBellButton({ eventId, bellSound }: RingBellButtonProps) {
 
 const styles = StyleSheet.create({
   button: {
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.input,
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: spacing.lg,
   },
   buttonPressed: { opacity: 0.9 },
-  buttonText: { fontSize: 18, fontWeight: '600' },
+  buttonText: { fontSize: typography.h3, fontWeight: '600' },
 });

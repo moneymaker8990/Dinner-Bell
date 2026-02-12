@@ -18,8 +18,8 @@ export function NotificationHandler() {
     import('@/lib/notifications').then(({ registerForPushNotificationsAsync, savePushToken }) => {
       registerForPushNotificationsAsync().then((token) => {
         if (token) savePushToken(token);
-      });
-    });
+      }).catch(() => {});
+    }).catch(() => {});
   }, [user?.id]);
 
   useEffect(() => {
@@ -62,8 +62,8 @@ export function NotificationHandler() {
             router.replace(`/event/${data.eventId}${suffix}`);
           }
         }
-      });
-    });
+      }).catch(() => {});
+    }).catch(() => {});
     mounted.current = true;
   }, []);
 
@@ -108,7 +108,7 @@ export function NotificationHandler() {
           }
         }
       });
-    });
+    }).catch(() => {});
     return () => {
       unsub?.();
     };

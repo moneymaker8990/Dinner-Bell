@@ -1,23 +1,51 @@
+import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { AppBottomSheet } from '@/components/AppBottomSheet';
+import { PrimaryButton } from '@/components/Buttons';
+import { CelebrationOverlay } from '@/components/CelebrationOverlay';
+import { FloatingLabelInput } from '@/components/FloatingLabelInput';
+import { KeyboardAwareScrollView } from '@/components/KeyboardAwareScrollView';
+import { ProgressBar } from '@/components/ProgressBar';
+import { SkeletonLoader } from '@/components/SkeletonLoader';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { Copy } from '@/constants/Copy';
+import { lineHeight, radius, spacing, typography } from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { trackCreateFailed, trackCreatePublished, trackCreateStart, trackCreateStepCompleted, trackScreenViewed } from '@/lib/analytics';
 import { defaultForm, generateId, type CreateEventForm } from '@/lib/eventForm';
 import { fetchGroups, getGroupMembers, type GuestGroup } from '@/lib/groups';
+import { hapticSuccess } from '@/lib/haptics';
 import { addGuestByHost, addGuestByHostPhone } from '@/lib/invite';
-import { supabase } from '@/lib/supabase';
+import { queryClient } from '@/lib/queryClient';
+import { supabase, supabaseUrl } from '@/lib/supabase';
 import { fetchTemplates, THEME_ACCENT, type EventTemplate } from '@/lib/templates';
 import { useContactsPicker } from '@/lib/useContactsPicker';
 import type { BringItemCategory } from '@/types/database';
+import { Ionicons } from '@expo/vector-icons';
+import GorhomBottomSheet from '@gorhom/bottom-sheet';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Clipboard from 'expo-clipboard';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, TextInput } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Switch } from 'react-native';
+import Animated, { FadeInDown, FadeInRight, FadeOutLeft } from 'react-native-reanimated';
 
-const STEPS = ['Basics', 'Location', 'Menu', 'Bring List', 'Invite', 'Review'];
+const STEPS = [
+  Copy.create.stepBasics,
+  Copy.create.stepLocation,
+  Copy.create.stepMenu,
+  Copy.create.stepBringList,
+  Copy.create.stepInvite,
+  Copy.create.stepReview,
+] as const;
 const TOTAL_STEPS = 6;
 const BRING_CATEGORIES: BringItemCategory[] = ['drink', 'side', 'dessert', 'supplies', 'other'];
+const DRAFT_KEY = 'dinner_bell_create_draft';
 
 function fullAddressFromForm(form: CreateEventForm): string {
   const parts = [form.addressLine1, form.addressLine2, form.city, form.state, form.postalCode, form.country].filter(Boolean);
@@ -45,6 +73,36 @@ function formatBellTime(iso: string): string {
   }
 }
 
+type ContactRowProps = {
+  item: { id: string; name: string; phone: string };
+  isSelected: boolean;
+  onToggle: (id: string) => void;
+  inputBorderColor: string;
+  borderColor: string;
+  tintColor: string;
+};
+
+const ContactRow = React.memo(function ContactRow({
+  item,
+  isSelected,
+  onToggle,
+  inputBorderColor,
+  borderColor,
+  tintColor,
+}: ContactRowProps) {
+  return (
+    <Pressable
+      style={[styles.contactRow, { borderColor: inputBorderColor }]}
+      onPress={() => onToggle(item.id)}
+      accessibilityRole="button"
+      accessibilityLabel={`${isSelected ? 'Deselect' : 'Select'} ${item.name} for invite`}>
+      <Text style={styles.contactRowName}>{item.name}</Text>
+      <Text style={styles.contactRowPhone}>{item.phone}</Text>
+      <View style={[styles.checkbox, { borderColor: borderColor }, isSelected && { backgroundColor: tintColor }]} />
+    </Pressable>
+  );
+});
+
 export default function CreateDinnerScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ duplicateEventId?: string }>();
@@ -52,6 +110,7 @@ export default function CreateDinnerScreen() {
   const { user } = useAuth();
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
+  const reduceMotion = useReducedMotion();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<CreateEventForm>(defaultForm);
   const [saving, setSaving] = useState(false);
@@ -60,8 +119,17 @@ export default function CreateDinnerScreen() {
   const [showBellPicker, setShowBellPicker] = useState(false);
   const [groups, setGroups] = useState<GuestGroup[]>([]);
   const [templates, setTemplates] = useState<EventTemplate[]>([]);
+  const [createdEventId, setCreatedEventId] = useState<string | null>(null);
   const hasNavigatedRef = useRef(false);
+  const contactsSheetRef = useRef<GorhomBottomSheet>(null);
   const contactsPicker = useContactsPicker();
+  const [showDraftPrompt, setShowDraftPrompt] = useState(false);
+  const [savedDraft, setSavedDraft] = useState<any>(null);
+  const [draftSavedLabel, setDraftSavedLabel] = useState(false);
+
+  useEffect(() => {
+    trackScreenViewed('CreateEvent');
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -70,6 +138,7 @@ export default function CreateDinnerScreen() {
 
   useEffect(() => {
     fetchTemplates().then(setTemplates);
+    trackCreateStart();
   }, []);
 
   useEffect(() => {
@@ -145,12 +214,72 @@ export default function CreateDinnerScreen() {
     load();
   }, [duplicateEventId, user?.id]);
 
+  // ── Draft helpers ──────────────────────────────────────────────────
+  const saveDraft = useCallback(async (formState: CreateEventForm, currentStep: number) => {
+    try {
+      const payload = JSON.stringify({ form: formState, step: currentStep });
+      await AsyncStorage.setItem(DRAFT_KEY, payload);
+      setDraftSavedLabel(true);
+      setTimeout(() => setDraftSavedLabel(false), 1500);
+    } catch {
+      // Silently ignore storage errors
+    }
+  }, []);
+
+  const loadDraft = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(DRAFT_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw) as { form: CreateEventForm; step: number };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const clearDraft = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem(DRAFT_KEY);
+    } catch {
+      // Silently ignore
+    }
+  }, []);
+
+  // Restore draft on mount
+  useEffect(() => {
+    if (duplicateEventId) return; // Skip draft restore when duplicating
+    loadDraft().then((draft) => {
+      if (draft) {
+        setSavedDraft(draft);
+        setShowDraftPrompt(true);
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-save draft when step or key form fields change
+  useEffect(() => {
+    // Don't auto-save while the draft prompt is showing or after event creation
+    if (showDraftPrompt || createdEventId) return;
+    // Only save if the form has meaningful content
+    if (!form.title && step === 0) return;
+    saveDraft(form, step);
+  }, [step, form.title, form.startTime, form.bellTime, form.addressLine1, form.city, form.menuSections.length, form.bringItems.length, form.guestEmails.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear draft on successful creation
+  useEffect(() => {
+    if (createdEventId) {
+      clearDraft();
+    }
+  }, [createdEventId, clearDraft]);
+
   const updateForm = useCallback((updates: Partial<CreateEventForm>) => {
     setForm((prev) => ({ ...prev, ...updates }));
   }, []);
 
   const handleNext = () => {
-    if (step < TOTAL_STEPS - 1) setStep(step + 1);
+    if (step < TOTAL_STEPS - 1) {
+      trackCreateStepCompleted(step, STEPS[step]);
+      setStep(step + 1);
+    }
   };
 
   const handleBack = () => {
@@ -201,14 +330,29 @@ export default function CreateDinnerScreen() {
     }));
   }, []);
 
-  const inputStyle = [styles.input, { borderColor: colors.inputBorder }];
   const pickerBtnStyle = [styles.pickerBtn, { backgroundColor: colors.card }];
+
+  const pickCoverImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setForm({ ...form, coverImageUri: result.assets[0].uri });
+    }
+  };
 
   if (!user) {
     return (
       <View style={styles.container}>
-        <Text style={styles.stepTitle}>Sign in to create an event</Text>
-        <Pressable style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }]} onPress={() => router.push('/sign-in')}>
+        <Text style={styles.stepTitle} accessibilityRole="header">{Copy.auth.signInToCreate}</Text>
+        <Pressable
+          style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }]}
+          onPress={() => router.push('/sign-in')}
+          accessibilityRole="button"
+          accessibilityLabel={Copy.auth.signInToCreateEvents}>
           <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>Sign in</Text>
         </Pressable>
       </View>
@@ -218,9 +362,40 @@ export default function CreateDinnerScreen() {
   const handleSubmit = async () => {
     setSaving(true);
     setError(null);
+
+    // Validate required fields
+    if (!form.title.trim()) {
+      setError('Please enter a title for your event.');
+      setSaving(false);
+      return;
+    }
+    const now = new Date();
+    const bellDate = new Date(form.bellTime);
+    const startDate = new Date(form.startTime);
+    if (isNaN(bellDate.getTime()) || isNaN(startDate.getTime())) {
+      setError('Please set valid start and bell times.');
+      setSaving(false);
+      return;
+    }
+    if (bellDate <= now) {
+      setError('Bell time must be in the future.');
+      setSaving(false);
+      return;
+    }
+    if (bellDate < startDate) {
+      setError('Bell time cannot be before the start time.');
+      setSaving(false);
+      return;
+    }
+
     try {
+      if (supabaseUrl.includes('placeholder')) {
+        setError('Supabase not configured for this build. In Vercel: Settings → Environment Variables → add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY from your Supabase project, then redeploy.');
+        setSaving(false);
+        return;
+      }
       const inviteToken = generateToken();
-      const { data: eventId, error: eventError } = await (supabase as any).rpc('create_event', {
+      const { data: eventId, error: eventError } = await supabase.rpc('create_event', {
         p_title: form.title,
         p_description: form.description || null,
         p_start_time: form.startTime,
@@ -253,7 +428,7 @@ export default function CreateDinnerScreen() {
 
       for (let i = 0; i < form.menuSections.length; i++) {
         const sec = form.menuSections[i];
-        const { data: sectionData, error: sectionError } = await (supabase as any)
+        const { data: sectionData, error: sectionError } = await supabase
           .from('menu_sections')
           .insert({ event_id: eventId, title: sec.title, sort_order: i })
           .select('id')
@@ -261,7 +436,7 @@ export default function CreateDinnerScreen() {
         if (sectionError || !sectionData) continue;
         const sectionId = (sectionData as { id: string }).id;
         for (let j = 0; j < sec.items.length; j++) {
-          await (supabase as any).from('menu_items').insert({
+          await supabase.from('menu_items').insert({
             event_id: eventId,
             section_id: sectionId,
             name: sec.items[j].name,
@@ -274,7 +449,7 @@ export default function CreateDinnerScreen() {
 
       for (let i = 0; i < form.bringItems.length; i++) {
         const item = form.bringItems[i];
-        await (supabase as any).from('bring_items').insert({
+        await supabase.from('bring_items').insert({
           event_id: eventId,
           name: item.name,
           quantity: item.quantity || '1',
@@ -289,7 +464,7 @@ export default function CreateDinnerScreen() {
 
       for (let i = 0; i < form.scheduleBlocks.length; i++) {
         const block = form.scheduleBlocks[i];
-        await (supabase as any).from('schedule_blocks').insert({
+        await supabase.from('schedule_blocks').insert({
           event_id: eventId,
           title: block.title,
           time: block.time || null,
@@ -301,11 +476,30 @@ export default function CreateDinnerScreen() {
       const bellTime = new Date(form.bellTime);
       const reminder30 = new Date(bellTime.getTime() - 30 * 60 * 1000);
       const reminder2h = new Date(bellTime.getTime() - 2 * 60 * 60 * 1000);
-      await (supabase as any).from('notification_schedules').insert([
+      await supabase.from('notification_schedules').insert([
         { event_id: eventId, scheduled_at: reminder2h.toISOString(), type: 'reminder_2h' },
         { event_id: eventId, scheduled_at: reminder30.toISOString(), type: 'reminder_30m' },
         { event_id: eventId, scheduled_at: form.bellTime, type: 'bell' },
       ]);
+
+      // Upload cover image if one was selected
+      if (form.coverImageUri) {
+        try {
+          const response = await fetch(form.coverImageUri);
+          const blob = await response.blob();
+          await supabase.storage
+            .from('event-covers')
+            .upload(`${eventId}/cover.jpg`, blob, { contentType: 'image/jpeg', upsert: true });
+          const { data: publicUrlData } = supabase.storage
+            .from('event-covers')
+            .getPublicUrl(`${eventId}/cover.jpg`);
+          if (publicUrlData?.publicUrl) {
+            await supabase.from('events').update({ cover_image_url: publicUrlData.publicUrl }).eq('id', eventId);
+          }
+        } catch (uploadErr) {
+          if (__DEV__) console.warn('Cover image upload failed, skipping:', uploadErr);
+        }
+      }
 
       for (const contact of form.guestEmails) {
         const trimmed = contact.trim();
@@ -317,12 +511,17 @@ export default function CreateDinnerScreen() {
         }
       }
 
+      hapticSuccess();
+      trackCreatePublished(eventId);
+      queryClient.invalidateQueries({ queryKey: ['events'] });
       if (!hasNavigatedRef.current) {
         hasNavigatedRef.current = true;
-        router.replace(`/event/${eventId}`);
+        setCreatedEventId(eventId);
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Something went wrong');
+      const errMsg = e instanceof Error ? e.message : Copy.validation.genericError;
+      setError(errMsg);
+      trackCreateFailed(errMsg);
     } finally {
       setSaving(false);
     }
@@ -337,43 +536,110 @@ export default function CreateDinnerScreen() {
     updateForm({ guestEmails: combined });
     contactsPicker.setModalVisible(false);
     contactsPicker.setSelectedIds(new Set());
+    contactsSheetRef.current?.close();
   };
 
+  if (createdEventId != null) {
+    return (
+      <View style={[styles.container, styles.successWrap, { backgroundColor: colors.background }]}>
+        <CelebrationOverlay visible={true} headline="You're all set!" subtitle="Your dinner is created." onFinish={() => {}} />
+        <View style={[styles.successCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.successHeadline, { color: colors.textPrimary }]} accessibilityRole="header">{Copy.create.publishSuccessHeadline}</Text>
+          <Text style={[styles.successBody, { color: colors.textSecondary }]}>{Copy.create.publishSuccessBody}</Text>
+          <PrimaryButton
+            style={styles.successCta}
+            onPress={() => router.replace(`/event/${createdEventId}` as any)}>
+            {Copy.create.inviteNowCta}
+          </PrimaryButton>
+          <AnimatedPressable
+            style={styles.successSecondary}
+            onPress={() => router.replace(`/event/${createdEventId}` as any)}
+            accessibilityRole="button"
+            accessibilityLabel="View created event">
+            <Text style={[styles.successSecondaryText, { color: colors.primaryBrand }]}>{Copy.create.viewEventCta}</Text>
+          </AnimatedPressable>
+        </View>
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.stepTitle}>{STEPS[step]}</Text>
+    <KeyboardAwareScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Draft prompt overlay */}
+      {showDraftPrompt && savedDraft && (
+        <View style={[styles.draftPromptOverlay, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.draftPromptTitle, { color: colors.textPrimary }]}>Resume your draft?</Text>
+          <Text style={[styles.draftPromptBody, { color: colors.textSecondary }]}>
+            You have an unsaved draft for "{savedDraft.form?.title || 'Untitled event'}".
+          </Text>
+          <View style={styles.draftPromptActions}>
+            <AnimatedPressable
+              style={[styles.draftPromptBtn, { borderColor: colors.inputBorder }]}
+              onPress={() => {
+                clearDraft();
+                setSavedDraft(null);
+                setShowDraftPrompt(false);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Start fresh">
+              <Text style={[styles.draftPromptBtnText, { color: colors.text }]}>Start fresh</Text>
+            </AnimatedPressable>
+            <AnimatedPressable
+              style={[styles.draftPromptBtn, { backgroundColor: colors.primaryButton }]}
+              onPress={() => {
+                if (savedDraft.form) setForm(savedDraft.form);
+                if (typeof savedDraft.step === 'number') setStep(savedDraft.step);
+                setSavedDraft(null);
+                setShowDraftPrompt(false);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Resume draft">
+              <Text style={[styles.draftPromptBtnText, { color: colors.primaryButtonText }]}>Resume</Text>
+            </AnimatedPressable>
+          </View>
+        </View>
+      )}
+
+      {/* Premium progress bar */}
+      <ProgressBar progress={step / (TOTAL_STEPS - 1)} label={STEPS[step]} height={4} />
+      <Text style={[styles.stepTitle, { color: colors.textPrimary }]} accessibilityRole="header">{STEPS[step]}</Text>
 
       {step === 0 && (
-        <>
+        <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
           {templates.length > 0 && (
             <>
-              <Text style={styles.label}>Start from template</Text>
+              <Text style={styles.label}>{Copy.create.startFromTemplate}</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templateScroll} contentContainerStyle={styles.templateScrollContent}>
                 {templates.map((t) => (
-                  <Pressable
+                  <AnimatedPressable
                     key={t.id}
                     style={[styles.templateCard, { borderColor: t.theme_slug && THEME_ACCENT[t.theme_slug] ? THEME_ACCENT[t.theme_slug] : colors.inputBorder, backgroundColor: t.theme_slug && THEME_ACCENT[t.theme_slug] ? `${THEME_ACCENT[t.theme_slug]}18` : colors.card }]}
                     onPress={() => applyTemplate(t)}
-                  >
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use ${t.name} template`}>
                     <Text style={[styles.templateCardTitle, { color: colors.text }]}>{t.name}</Text>
                     {t.description ? <Text style={[styles.templateCardDesc, { color: colors.secondaryText }]} numberOfLines={2}>{t.description}</Text> : null}
-                  </Pressable>
+                  </AnimatedPressable>
                 ))}
               </ScrollView>
             </>
           )}
-          <Text style={styles.label}>Title</Text>
-          <TextInput
-            style={inputStyle}
+          <FloatingLabelInput
+            label={Copy.placeholder.eventTitle}
             value={form.title}
             onChangeText={(t: string) => updateForm({ title: t })}
-            placeholder="e.g. Thursday Dinner at Caleb's"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ title: '' })}
+            returnKeyType="next"
+            autoCapitalize="sentences"
+            style={{ marginBottom: spacing.lg }}
           />
-          <Text style={styles.label}>Start time</Text>
           {Platform.OS !== 'web' && (
             <>
-              <Pressable style={pickerBtnStyle} onPress={() => setShowStartPicker(true)}>
+              <Pressable
+                style={pickerBtnStyle}
+                onPress={() => setShowStartPicker(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Pick start date and time">
                 <Text style={styles.pickerBtnText}>Pick start date & time</Text>
               </Pressable>
               {showStartPicker && (
@@ -388,18 +654,22 @@ export default function CreateDinnerScreen() {
               )}
             </>
           )}
-          <TextInput
-            style={inputStyle}
+          <FloatingLabelInput
+            label={Copy.placeholder.dateTimePlaceholder}
             value={form.startTime}
             onChangeText={(t: string) => updateForm({ startTime: t })}
-            placeholder="YYYY-MM-DDTHH:mm"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ startTime: '' })}
+            returnKeyType="next"
+            style={{ marginBottom: spacing.lg }}
           />
-          <Text style={styles.label}>Bell time</Text>
           {Platform.OS !== 'web' && (
             <>
-              <Pressable style={pickerBtnStyle} onPress={() => setShowBellPicker(true)}>
-                <Text style={styles.pickerBtnText}>Pick bell date & time</Text>
+              <Pressable
+                style={pickerBtnStyle}
+                onPress={() => setShowBellPicker(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Pick bell date and time">
+                <Text style={styles.pickerBtnText}>{Copy.create.pickBellTime}</Text>
               </Pressable>
               {showBellPicker && (
                 <DateTimePicker
@@ -413,105 +683,148 @@ export default function CreateDinnerScreen() {
               )}
             </>
           )}
-          <TextInput
-            style={inputStyle}
+          <FloatingLabelInput
+            label={Copy.placeholder.dateTimePlaceholder}
             value={form.bellTime}
             onChangeText={(t: string) => updateForm({ bellTime: t })}
-            placeholder="YYYY-MM-DDTHH:mm"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ bellTime: '' })}
+            returnKeyType="next"
+            style={{ marginBottom: spacing.lg }}
           />
           <View style={styles.toggleRow}>
-            <Text style={styles.toggleLabel}>List in Discover (public event)</Text>
-            <Switch value={form.isPublic ?? false} onValueChange={(v) => updateForm({ isPublic: v })} trackColor={{ false: colors.inputBorder, true: colors.primaryButton }} thumbColor="#fff" />
+            <Text style={styles.toggleLabel}>{Copy.create.publicEvent}</Text>
+            <Switch value={form.isPublic ?? false} onValueChange={(v) => updateForm({ isPublic: v })} trackColor={{ false: colors.inputBorder, true: colors.primaryButton }} thumbColor={colors.primaryButtonText} />
           </View>
-        </>
+          <View style={{ marginBottom: spacing.lg }}>
+            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>Cover Image (optional)</Text>
+            <AnimatedPressable
+              onPress={pickCoverImage}
+              style={[styles.coverImagePicker, { borderColor: colors.border, backgroundColor: colors.surface2 }]}
+            >
+              {form.coverImageUri ? (
+                <Image
+                  source={{ uri: form.coverImageUri }}
+                  style={styles.coverImagePreview}
+                  contentFit="cover"
+                  transition={200}
+                />
+              ) : (
+                <View style={styles.coverImagePlaceholder}>
+                  <Ionicons name="image-outline" size={32} color={colors.placeholder} />
+                  <Text style={[styles.coverImageHint, { color: colors.placeholder }]}>Tap to add a cover photo</Text>
+                </View>
+              )}
+            </AnimatedPressable>
+            {form.coverImageUri && (
+              <Pressable onPress={() => setForm({ ...form, coverImageUri: null })} style={{ marginTop: spacing.sm }}>
+                <Text style={{ color: colors.error, fontSize: typography.meta }}>Remove cover image</Text>
+              </Pressable>
+            )}
+          </View>
+        </Animated.View>
       )}
 
       {step === 1 && (
-        <>
-          <Text style={styles.label}>Address line 1</Text>
-          <TextInput
-            style={inputStyle}
+        <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
+          <FloatingLabelInput
+            label="Street address"
             value={form.addressLine1}
             onChangeText={(t: string) => updateForm({ addressLine1: t })}
-            placeholder="Street address"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ addressLine1: '' })}
+            returnKeyType="next"
+            autoComplete="street-address"
+            autoCapitalize="words"
+            style={{ marginBottom: spacing.lg }}
           />
-          <Text style={styles.label}>Unit / Apt</Text>
-          <TextInput
-            style={inputStyle}
+          <FloatingLabelInput
+            label={Copy.common.optional}
             value={form.addressLine2}
             onChangeText={(t: string) => updateForm({ addressLine2: t })}
-            placeholder="Optional"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ addressLine2: '' })}
+            returnKeyType="next"
+            autoCapitalize="words"
+            style={{ marginBottom: spacing.lg }}
           />
-          <Text style={styles.label}>City</Text>
-          <TextInput
-            style={inputStyle}
+          <FloatingLabelInput
+            label="City"
             value={form.city}
             onChangeText={(t: string) => updateForm({ city: t })}
-            placeholder="City"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ city: '' })}
+            returnKeyType="next"
+            autoCapitalize="words"
+            style={{ marginBottom: spacing.lg }}
           />
-          <Text style={styles.label}>State</Text>
-          <TextInput
-            style={inputStyle}
+          <FloatingLabelInput
+            label="State"
             value={form.state}
             onChangeText={(t: string) => updateForm({ state: t })}
-            placeholder="State"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ state: '' })}
+            returnKeyType="next"
+            autoCapitalize="characters"
+            style={{ marginBottom: spacing.lg }}
           />
-          <Text style={styles.label}>Postal code</Text>
-          <TextInput
-            style={inputStyle}
+          <FloatingLabelInput
+            label={Copy.placeholder.postalCode}
             value={form.postalCode}
             onChangeText={(t: string) => updateForm({ postalCode: t })}
-            placeholder="Postal code"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ postalCode: '' })}
+            returnKeyType="next"
+            autoComplete="postal-code"
+            style={{ marginBottom: spacing.lg }}
           />
-          <Text style={styles.label}>Country</Text>
-          <TextInput
-            style={inputStyle}
+          <FloatingLabelInput
+            label={Copy.placeholder.country}
             value={form.country}
             onChangeText={(t: string) => updateForm({ country: t })}
-            placeholder="Country"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ country: '' })}
+            returnKeyType="next"
+            autoCapitalize="words"
+            style={{ marginBottom: spacing.lg }}
           />
-          <Text style={styles.label}>Location notes (parking, gate code)</Text>
-          <TextInput
-            style={[inputStyle, styles.textArea]}
+          <FloatingLabelInput
+            label={Copy.placeholder.locationNotes}
             value={form.locationNotes}
             onChangeText={(t: string) => updateForm({ locationNotes: t })}
-            placeholder="Optional"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ locationNotes: '' })}
             multiline
+            returnKeyType="done"
+            style={{ marginBottom: spacing.lg, minHeight: 80 }}
           />
-          <Pressable style={styles.buttonSecondary} onPress={() => Clipboard.setStringAsync(fullAddressFromForm(form))}>
-            <Text style={styles.buttonSecondaryText}>Copy address</Text>
+          <Pressable
+            style={styles.buttonSecondary}
+            onPress={() => Clipboard.setStringAsync(fullAddressFromForm(form))}
+            accessibilityRole="button"
+            accessibilityLabel="Copy address to clipboard">
+            <Text style={styles.buttonSecondaryText}>{Copy.create.copyAddress}</Text>
           </Pressable>
-        </>
+        </Animated.View>
       )}
 
       {step === 2 && (
-        <>
+        <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
           {form.menuSections.map((sec, si) => (
             <View key={sec.id} style={styles.section}>
-              <Text style={styles.label}>Section title</Text>
-              <TextInput
-                style={inputStyle}
+              <FloatingLabelInput
+                label={Copy.placeholder.sectionTitle}
                 value={sec.title}
                 onChangeText={(t: string) => {
                   const next = [...form.menuSections];
                   next[si] = { ...next[si], title: t };
                   updateForm({ menuSections: next });
                 }}
-                placeholder="e.g. Main, Dessert"
-                placeholderTextColor="#888"
+                onClear={() => {
+                  const next = [...form.menuSections];
+                  next[si] = { ...next[si], title: '' };
+                  updateForm({ menuSections: next });
+                }}
+                returnKeyType="next"
+                autoCapitalize="words"
+                style={{ marginBottom: spacing.lg }}
               />
               {sec.items.map((item, ii) => (
                 <View key={item.id} style={styles.row}>
-                  <TextInput
-                    style={inputStyle}
+                  <FloatingLabelInput
+                    label={Copy.placeholder.menuItemName}
                     value={item.name}
                     onChangeText={(t: string) => {
                       const next = [...form.menuSections];
@@ -519,8 +832,15 @@ export default function CreateDinnerScreen() {
                       next[si].items[ii] = { ...next[si].items[ii], name: t };
                       updateForm({ menuSections: next });
                     }}
-                    placeholder="Item name"
-                    placeholderTextColor="#888"
+                    onClear={() => {
+                      const next = [...form.menuSections];
+                      next[si].items = [...next[si].items];
+                      next[si].items[ii] = { ...next[si].items[ii], name: '' };
+                      updateForm({ menuSections: next });
+                    }}
+                    returnKeyType="done"
+                    autoCapitalize="sentences"
+                    style={{ marginBottom: spacing.lg }}
                   />
                 </View>
               ))}
@@ -533,7 +853,8 @@ export default function CreateDinnerScreen() {
                   };
                   updateForm({ menuSections: next });
                 }}
-              >
+                accessibilityRole="button"
+                accessibilityLabel="Add menu item">
                 <Text style={[styles.link, { color: colors.tint }]}>+ Add item</Text>
               </Pressable>
             </View>
@@ -544,15 +865,16 @@ export default function CreateDinnerScreen() {
                 menuSections: [...form.menuSections, { id: generateId(), title: 'New section', items: [] }],
               })
             }
-          >
+            accessibilityRole="button"
+            accessibilityLabel="Add menu section">
             <Text style={[styles.link, { color: colors.tint }]}>+ Add section</Text>
           </Pressable>
-        </>
+        </Animated.View>
       )}
 
       {step === 3 && (
-        <>
-          <Text style={styles.label}>Quick add</Text>
+        <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
+          <Text style={styles.label}>{Copy.create.quickAdd}</Text>
           <View style={styles.quickAddRow}>
             {[
               { name: 'Drinks', category: 'drink' as const },
@@ -571,55 +893,68 @@ export default function CreateDinnerScreen() {
                     ],
                   })
                 }
-              >
+                accessibilityRole="button"
+                accessibilityLabel={`Quick add ${name}`}>
                 <Text style={[styles.quickAddChipText, { color: colors.tint }]}>{name}</Text>
               </Pressable>
             ))}
           </View>
           {form.bringItems.map((item, ii) => (
-            <View key={item.id} style={styles.bringItemBlock}>
+            <View key={item.id} style={[styles.bringItemBlock, { borderBottomColor: colors.border }]}>
               <View style={styles.bringRow}>
-                <TextInput
-                  style={[inputStyle, { flex: 1 }]}
+                <FloatingLabelInput
+                  label={Copy.placeholder.menuItemName}
                   value={item.name}
                   onChangeText={(t: string) => {
                     const next = [...form.bringItems];
                     next[ii] = { ...next[ii], name: t };
                     updateForm({ bringItems: next });
                   }}
-                  placeholder="Item name"
-                  placeholderTextColor="#888"
+                  onClear={() => {
+                    const next = [...form.bringItems];
+                    next[ii] = { ...next[ii], name: '' };
+                    updateForm({ bringItems: next });
+                  }}
+                  returnKeyType="next"
+                  autoCapitalize="sentences"
+                  style={{ flex: 1, marginBottom: spacing.lg }}
                 />
-                <TextInput
-                  style={[inputStyle, { width: 80 }]}
+                <FloatingLabelInput
+                  label={Copy.placeholder.quantity}
                   value={item.quantity}
                   onChangeText={(t: string) => {
                     const next = [...form.bringItems];
                     next[ii] = { ...next[ii], quantity: t };
                     updateForm({ bringItems: next });
                   }}
-                  placeholder="Qty"
-                  placeholderTextColor="#888"
+                  onClear={() => {
+                    const next = [...form.bringItems];
+                    next[ii] = { ...next[ii], quantity: '' };
+                    updateForm({ bringItems: next });
+                  }}
+                  returnKeyType="done"
+                  style={{ width: 80, marginBottom: spacing.lg }}
                 />
               </View>
-              <Text style={styles.label}>Category</Text>
+              <Text style={styles.label}>{Copy.create.category}</Text>
               <View style={styles.categoryRow}>
                 {BRING_CATEGORIES.map((cat) => (
                   <Pressable
                     key={cat}
-                    style={[styles.categoryBtn, item.category === cat && { backgroundColor: colors.primaryButton, borderColor: colors.primaryButton }]}
+                    style={[styles.categoryBtn, { borderColor: colors.border }, item.category === cat && { backgroundColor: colors.primaryButton, borderColor: colors.primaryButton }]}
                     onPress={() => {
                       const next = [...form.bringItems];
                       next[ii] = { ...next[ii], category: cat };
                       updateForm({ bringItems: next });
                     }}
-                  >
+                    accessibilityRole="button"
+                    accessibilityLabel={`Set category to ${cat}`}>
                     <Text style={[styles.categoryBtnText, item.category === cat && { color: colors.primaryButtonText }]}>{cat}</Text>
                   </Pressable>
                 ))}
               </View>
               <View style={styles.toggleRow}>
-                <Text style={styles.toggleLabel}>Claimable</Text>
+                <Text style={styles.toggleLabel}>{Copy.create.claimable}</Text>
                 <Switch
                   value={item.isClaimable}
                   onValueChange={(v) => {
@@ -630,7 +965,7 @@ export default function CreateDinnerScreen() {
                 />
               </View>
               <View style={styles.toggleRow}>
-                <Text style={styles.toggleLabel}>Required</Text>
+                <Text style={styles.toggleLabel}>{Copy.create.required}</Text>
                 <Switch
                   value={item.isRequired}
                   onValueChange={(v) => {
@@ -652,25 +987,26 @@ export default function CreateDinnerScreen() {
               })
             }
           >
-            <Text style={[styles.link, { color: colors.tint }]}>+ Add bring item</Text>
+            <Text style={[styles.link, { color: colors.tint }]}>{Copy.event.addBringItem}</Text>
           </Pressable>
-        </>
+        </Animated.View>
       )}
 
       {step === 4 && (
-        <>
-          <Text style={styles.label}>Note to guests (optional)</Text>
-          <TextInput
-            style={[inputStyle, styles.textArea]}
+        <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
+          <FloatingLabelInput
+            label={Copy.placeholder.noteToGuests}
             value={form.noteToGuests}
             onChangeText={(t: string) => updateForm({ noteToGuests: t })}
-            placeholder="e.g. Can't wait to see you! Bring your appetite."
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ noteToGuests: '' })}
             multiline
+            returnKeyType="done"
+            autoCapitalize="sentences"
+            style={{ marginBottom: spacing.lg, minHeight: 80 }}
           />
           {groups.length > 0 && (
             <>
-              <Text style={styles.label}>Invite a group</Text>
+              <Text style={styles.label}>{Copy.create.inviteGroup}</Text>
               <View style={styles.quickAddRow}>
                 {groups.map((g) => (
                   <Pressable
@@ -682,7 +1018,8 @@ export default function CreateDinnerScreen() {
                       const combined = [...new Set([...form.guestEmails, ...contacts])];
                       updateForm({ guestEmails: combined });
                     }}
-                  >
+                    accessibilityRole="button"
+                    accessibilityLabel={`Invite group ${g.name}`}>
                     <Text style={[styles.quickAddChipText, { color: colors.tint }]}>{g.name}</Text>
                   </Pressable>
                 ))}
@@ -690,184 +1027,317 @@ export default function CreateDinnerScreen() {
             </>
           )}
           {Platform.OS !== 'web' && (
-            <Pressable style={[styles.buttonSecondary, { borderColor: colors.inputBorder }]} onPress={contactsPicker.openPicker}>
-              <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Add from contacts</Text>
+            <Pressable
+              style={[styles.buttonSecondary, { borderColor: colors.inputBorder }]}
+              onPress={() => {
+                contactsPicker.openPicker();
+                contactsSheetRef.current?.snapToIndex(0);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Add guests from contacts">
+              <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.common.addFromContacts}</Text>
             </Pressable>
           )}
-          <Text style={styles.label}>Guests (email or phone, one per line or comma-separated)</Text>
-          <TextInput
-            style={[inputStyle, styles.textArea]}
+          <FloatingLabelInput
+            label={Copy.placeholder.guestsInput}
             value={form.guestEmails.join(', ')}
             onChangeText={(t: string) => updateForm({ guestEmails: t.split(/[\n,]/).map((e: string) => e.trim()).filter(Boolean) })}
-            placeholder="email@example.com or 5551234567"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ guestEmails: [] })}
             multiline
+            returnKeyType="done"
+            autoCapitalize="none"
+            style={{ marginBottom: spacing.lg, minHeight: 80 }}
           />
-          <Text style={styles.hint}>Or share the invite link after creating the event.</Text>
-        </>
+          <Text style={styles.hint}>{Copy.create.shareInviteAfter}</Text>
+        </Animated.View>
       )}
 
       {step === 5 && (
-        <View style={styles.summary}>
-          <Text style={[styles.almostThere, { color: colors.secondaryText }]}>Almost there!</Text>
+        <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)} style={styles.summary}>
+          <Text style={[styles.almostThere, { color: colors.secondaryText }]}>{Copy.create.almostThere}</Text>
           <View style={[styles.summaryCard, { backgroundColor: colors.card }]}>
             <Text style={styles.summaryTitle}>{form.title}</Text>
             <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
-              Bell: {formatBellTime(form.bellTime)}
+              {Copy.create.bellLabel}{formatBellTime(form.bellTime)}
             </Text>
             <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
               {form.addressLine1}, {form.city}
             </Text>
             <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
-              Menu sections: {form.menuSections.length}
+              {Copy.create.menuSectionsLabel}{form.menuSections.length}
             </Text>
             <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
               Bring items: {form.bringItems.length}
             </Text>
           </View>
-        </View>
+        </Animated.View>
       )}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
 
       {Platform.OS !== 'web' && (
-        <Modal visible={contactsPicker.modalVisible} transparent animationType="fade">
-          <Pressable style={styles.modalOverlay} onPress={() => contactsPicker.setModalVisible(false)}>
-            <Pressable style={[styles.modalContent, styles.contactsModalContent, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>Add from contacts</Text>
-              {contactsPicker.contactsError ? (
-                <Text style={styles.modalError}>{contactsPicker.contactsError}</Text>
-              ) : contactsPicker.contactsLoading ? (
-                <Text style={styles.hint}>Loading contacts...</Text>
-              ) : contactsPicker.contactsList.length === 0 ? (
-                <Text style={styles.hint}>No contacts with phone numbers found.</Text>
-              ) : (
-                <>
-                  <FlatList
-                    data={contactsPicker.contactsList}
-                    keyExtractor={(item) => item.id}
-                    style={styles.contactsList}
-                    renderItem={({ item }) => (
-                      <Pressable
-                        style={[styles.contactRow, { borderColor: colors.inputBorder }]}
-                        onPress={() => contactsPicker.toggleSelection(item.id)}
-                      >
-                        <Text style={styles.contactRowName}>{item.name}</Text>
-                        <Text style={styles.contactRowPhone}>{item.phone}</Text>
-                        <View style={[styles.checkbox, contactsPicker.selectedIds.has(item.id) && { backgroundColor: colors.tint }]} />
-                      </Pressable>
-                    )}
+        <AppBottomSheet
+          ref={contactsSheetRef}
+          index={-1}
+          snapPoints={['70%']}
+          onClose={() => contactsPicker.setModalVisible(false)}
+          title={Copy.common.addFromContacts}
+          scrollable
+        >
+          {contactsPicker.contactsError ? (
+            <Text style={[styles.modalError, { color: colors.error }]}>{contactsPicker.contactsError}</Text>
+          ) : contactsPicker.contactsLoading ? (
+            <View style={styles.contactsSkeletonWrap}>
+              <SkeletonLoader height={44} borderRadius={8} style={styles.contactsSkeletonRow} />
+              <SkeletonLoader height={44} borderRadius={8} style={styles.contactsSkeletonRow} />
+              <SkeletonLoader height={44} borderRadius={8} style={styles.contactsSkeletonRow} />
+            </View>
+          ) : contactsPicker.contactsList.length === 0 ? (
+            <Text style={styles.hint}>{Copy.common.noContactsFound}</Text>
+          ) : (
+            <>
+              <FlatList
+                data={contactsPicker.contactsList}
+                keyExtractor={(item) => item.id}
+                style={styles.contactsList}
+                renderItem={({ item }) => (
+                  <ContactRow
+                    item={item}
+                    isSelected={contactsPicker.selectedIds.has(item.id)}
+                    onToggle={contactsPicker.toggleSelection}
+                    inputBorderColor={colors.inputBorder}
+                    borderColor={colors.border}
+                    tintColor={colors.tint}
                   />
-                  <Pressable
-                    style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }, contactsPicker.selectedIds.size === 0 && styles.btnDisabled]}
-                    onPress={handleAddSelectedContactsToGuests}
-                    disabled={contactsPicker.selectedIds.size === 0}
-                  >
-                    <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>
-                      Add selected ({contactsPicker.selectedIds.size})
-                    </Text>
-                  </Pressable>
-                </>
-              )}
-              <Pressable style={styles.modalCancel} onPress={() => contactsPicker.setModalVisible(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
+                )}
+              />
+              <Pressable
+                style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }, contactsPicker.selectedIds.size === 0 && styles.btnDisabled]}
+                onPress={handleAddSelectedContactsToGuests}
+                disabled={contactsPicker.selectedIds.size === 0}
+                accessibilityRole="button"
+                accessibilityLabel={`Add ${contactsPicker.selectedIds.size} selected contacts`}>
+                <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>
+                  {Copy.common.addSelected(contactsPicker.selectedIds.size)}
+                </Text>
               </Pressable>
-            </Pressable>
+            </>
+          )}
+          <Pressable style={styles.modalCancel} onPress={() => contactsSheetRef.current?.close()}>
+            <Text style={styles.modalCancelText}>{Copy.common.cancel}</Text>
           </Pressable>
-        </Modal>
+        </AppBottomSheet>
       )}
 
       <View style={styles.footer}>
         {step > 0 && (
-          <Pressable style={[styles.btnSecondary, { borderColor: colors.inputBorder }]} onPress={handleBack}>
-            <Text style={[styles.btnSecondaryText, { color: colors.text }]}>Back</Text>
-          </Pressable>
+          <AnimatedPressable
+            style={[styles.btnSecondary, { borderColor: colors.inputBorder }]}
+            onPress={handleBack}
+            accessibilityRole="button"
+            accessibilityLabel="Previous step">
+            <Text style={[styles.btnSecondaryText, { color: colors.text }]}>{Copy.common.back}</Text>
+          </AnimatedPressable>
         )}
         {step < TOTAL_STEPS - 1 ? (
-          <Pressable style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }]} onPress={handleNext}>
-            <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>Next</Text>
-          </Pressable>
+          <AnimatedPressable
+            style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }]}
+            onPress={handleNext}
+            accessibilityRole="button"
+            accessibilityLabel="Next step">
+            <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>{Copy.common.next}</Text>
+          </AnimatedPressable>
         ) : (
-          <Pressable
+          <AnimatedPressable
             style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }, saving && styles.btnDisabled]}
             onPress={handleSubmit}
             disabled={saving}
-          >
+            accessibilityRole="button"
+            accessibilityLabel="Create and send event">
             <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>
-              {saving ? 'Creating...' : 'Create & Send'}
+              {saving ? Copy.create.creating : Copy.create.createAndSend}
             </Text>
-          </Pressable>
+          </AnimatedPressable>
         )}
       </View>
-    </ScrollView>
+      {draftSavedLabel && (
+        <Animated.Text
+          entering={FadeInDown.duration(200)}
+          style={[styles.draftSavedText, { color: colors.secondaryText }]}>
+          Draft saved
+        </Animated.Text>
+      )}
+    </KeyboardAwareScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
-  stepTitle: { fontSize: 22, fontWeight: '600', marginBottom: 16 },
-  label: { fontSize: 14, fontWeight: '500', marginBottom: 6 },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl + spacing.sm },
+  stepProgress: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  stepDot: {
+    width: spacing.sm,
+    height: spacing.sm,
+    borderRadius: spacing.xs,
+  },
+  successWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  successCard: {
+    width: '100%',
+    maxWidth: 360,
+    padding: spacing.xl,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  successHeadline: {
+    fontSize: typography.title,
+    fontWeight: '700',
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
+  successBody: {
+    fontSize: typography.body,
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+    lineHeight: lineHeight.body,
+  },
+  successCta: { width: '100%', marginBottom: spacing.sm },
+  successSecondary: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
+  successSecondaryText: { fontSize: typography.body, fontWeight: '600' },
+  stepTitle: { fontSize: typography.headline, fontWeight: '600', marginBottom: spacing.lg },
+  label: { fontSize: typography.meta, fontWeight: '500', marginBottom: spacing.xs + 2 },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    marginBottom: 16,
+    borderRadius: radius.input,
+    padding: spacing.md,
+    fontSize: typography.body,
+    marginBottom: spacing.lg,
   },
   textArea: { minHeight: 80 },
-  section: { marginBottom: 16 },
-  sectionTitle: { fontSize: 16, fontWeight: '600', marginBottom: 8 },
-  itemText: { fontSize: 14, marginBottom: 4 },
-  row: { marginBottom: 8 },
-  bringRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  quickAddRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  quickAddChip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, borderWidth: 1 },
-  quickAddChipText: { fontSize: 14, fontWeight: '500' },
-  bringItemBlock: { marginBottom: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(128,128,128,0.2)' },
-  categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-  categoryBtn: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: '#ccc' },
-  categoryBtnActive: { backgroundColor: '#2f95dc', borderColor: '#2f95dc' },
-  categoryBtnText: { fontSize: 12 },
-  categoryBtnTextActive: { color: '#fff' },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  toggleLabel: { fontSize: 14 },
-  pickerBtn: { padding: 12, borderRadius: 8, backgroundColor: '#eee', marginBottom: 8 },
-  pickerBtnText: { fontSize: 14, fontWeight: '500' },
-  buttonSecondary: { padding: 12, alignItems: 'center', marginTop: 8 },
+  section: { marginBottom: spacing.lg },
+  sectionTitle: { fontSize: typography.body, fontWeight: '600', marginBottom: spacing.sm },
+  itemText: { fontSize: typography.meta, marginBottom: spacing.xs },
+  row: { marginBottom: spacing.sm },
+  bringRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  quickAddRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
+  quickAddChip: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: spacing.sm, borderWidth: 1 },
+  quickAddChipText: { fontSize: typography.meta, fontWeight: '500' },
+  bringItemBlock: { marginBottom: spacing.lg + spacing.xs, paddingBottom: spacing.md, borderBottomWidth: 1 },
+  categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs + 2, marginBottom: spacing.sm },
+  categoryBtn: { paddingVertical: spacing.xs + 2, paddingHorizontal: spacing.sm + 2, borderRadius: spacing.sm, borderWidth: 1 },
+  categoryBtnText: { fontSize: typography.microLabel },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
+  toggleLabel: { fontSize: typography.meta },
+  pickerBtn: { padding: spacing.md, borderRadius: spacing.sm, marginBottom: spacing.sm },
+  pickerBtnText: { fontSize: typography.meta, fontWeight: '500' },
+  buttonSecondary: { padding: spacing.md, alignItems: 'center', marginTop: spacing.sm },
   buttonSecondaryText: { fontWeight: '600' },
-  link: { fontSize: 16, color: '#2f95dc', marginTop: 8 },
-  hint: { fontSize: 12, opacity: 0.7, marginTop: 8 },
-  summary: { marginBottom: 24 },
-  almostThere: { fontSize: 16, marginBottom: 12, fontWeight: '600' },
-  summaryCard: { padding: 16, borderRadius: 12, marginBottom: 8 },
-  summaryTitle: { fontSize: 20, fontWeight: '600', marginBottom: 8 },
-  summaryText: { fontSize: 14, marginBottom: 4 },
-  error: { color: '#c00', marginBottom: 12 },
-  footer: { flexDirection: 'row', gap: 12, marginTop: 24 },
-  btnPrimary: { flex: 1, padding: 16, borderRadius: 8, alignItems: 'center' },
+  link: { fontSize: typography.body, marginTop: spacing.sm },
+  hint: { fontSize: typography.microLabel, opacity: 0.7, marginTop: spacing.sm },
+  summary: { marginBottom: spacing.xl },
+  almostThere: { fontSize: typography.body, marginBottom: spacing.md, fontWeight: '600' },
+  summaryCard: { padding: spacing.lg, borderRadius: radius.input, marginBottom: spacing.sm },
+  summaryTitle: { fontSize: typography.h3, fontWeight: '600', marginBottom: spacing.sm },
+  summaryText: { fontSize: typography.meta, marginBottom: spacing.xs },
+  error: { marginBottom: spacing.md },
+  footer: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.xl },
+  btnPrimary: { flex: 1, padding: spacing.lg, borderRadius: radius.input, alignItems: 'center' },
   btnPrimaryText: { fontWeight: '600' },
-  btnSecondary: { padding: 16, borderRadius: 8, alignItems: 'center', borderWidth: 1 },
+  btnSecondary: { padding: spacing.lg, borderRadius: radius.input, alignItems: 'center', borderWidth: 1 },
   btnSecondaryText: { fontWeight: '600' },
   btnDisabled: { opacity: 0.6 },
-  templateScroll: { marginHorizontal: -20, marginBottom: 16 },
-  templateScrollContent: { paddingHorizontal: 20, gap: 12 },
-  templateCard: { width: 140, padding: 12, borderRadius: 12, borderWidth: 1 },
-  templateCardTitle: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
-  templateCardDesc: { fontSize: 12 },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  toggleLabel: { fontSize: 14, flex: 1 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  modalContent: { borderRadius: 16, padding: 24, width: '100%', maxWidth: 340 },
-  modalTitle: { fontSize: 20, fontWeight: '600', marginBottom: 16 },
-  modalError: { color: '#c00', marginBottom: 8 },
-  modalCancel: { padding: 12, alignItems: 'center', marginTop: 8 },
+  templateScroll: { marginHorizontal: -(spacing.lg + spacing.xs), marginBottom: spacing.lg },
+  templateScrollContent: { paddingHorizontal: spacing.lg + spacing.xs, gap: spacing.md },
+  templateCard: { width: 140, padding: spacing.md, borderRadius: radius.input, borderWidth: 1 },
+  templateCardTitle: { fontSize: typography.body, fontWeight: '600', marginBottom: spacing.xs },
+  templateCardDesc: { fontSize: typography.microLabel },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
+  toggleLabel: { fontSize: typography.meta, flex: 1 },
+  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  modalContent: { borderRadius: spacing.lg, padding: spacing.xl, width: '100%', maxWidth: 340 },
+  modalTitle: { fontSize: typography.h3, fontWeight: '600', marginBottom: spacing.lg },
+  modalError: { marginBottom: spacing.sm },
+  modalCancel: { padding: spacing.md, alignItems: 'center', marginTop: spacing.sm },
   modalCancelText: { fontWeight: '500' },
   contactsModalContent: { maxHeight: '80%' },
-  contactsList: { maxHeight: 280, marginBottom: 12 },
-  contactRow: { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1 },
-  contactRowName: { flex: 1, fontSize: 16, fontWeight: '500' },
-  contactRowPhone: { fontSize: 14, opacity: 0.8, marginRight: 12 },
-  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#888' },
+  contactsSkeletonWrap: { gap: spacing.sm, marginBottom: spacing.md },
+  contactsSkeletonRow: { marginBottom: 0 },
+  contactsList: { maxHeight: 280, marginBottom: spacing.md },
+  contactRow: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, borderBottomWidth: 1 },
+  contactRowName: { flex: 1, fontSize: typography.body, fontWeight: '500' },
+  contactRowPhone: { fontSize: typography.meta, opacity: 0.8, marginRight: spacing.md },
+  checkbox: { width: 22, height: 22, borderRadius: spacing.xs + 2, borderWidth: 2 },
+  draftPromptOverlay: {
+    padding: spacing.lg,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  draftPromptTitle: {
+    fontSize: typography.h3,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  draftPromptBody: {
+    fontSize: typography.meta,
+    marginBottom: spacing.md,
+    lineHeight: lineHeight.small,
+  },
+  draftPromptActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  draftPromptBtn: {
+    flex: 1,
+    padding: spacing.md,
+    borderRadius: radius.input,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  draftPromptBtnText: {
+    fontWeight: '600',
+    fontSize: typography.body,
+  },
+  draftSavedText: {
+    textAlign: 'center',
+    fontSize: typography.microLabel,
+    marginTop: spacing.sm,
+    opacity: 0.7,
+  },
+  sectionLabel: {
+    fontSize: typography.meta,
+    fontWeight: '500',
+    marginBottom: spacing.xs + 2,
+  },
+  coverImagePicker: {
+    borderWidth: 1,
+    borderRadius: radius.card,
+    overflow: 'hidden',
+    height: 160,
+    borderStyle: 'dashed',
+  },
+  coverImagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  coverImagePlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  coverImageHint: {
+    fontSize: typography.meta,
+  },
 });

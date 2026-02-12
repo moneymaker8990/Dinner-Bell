@@ -27,6 +27,7 @@ export interface CreateEventForm {
   accentColor?: string | null;
   capacity?: number | null;
   isPublic?: boolean;
+  coverImageUri?: string | null;
 }
 
 export const defaultForm: CreateEventForm = {
@@ -52,6 +53,7 @@ export const defaultForm: CreateEventForm = {
   noteToGuests: '',
   capacity: null,
   isPublic: false,
+  coverImageUri: null,
 };
 
 export function generateId(): string {

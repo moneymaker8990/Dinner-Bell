@@ -23,6 +23,7 @@ export interface EventWithDetails {
   accent_color?: string | null;
   capacity?: number | null;
   bell_sound?: string;
+  cover_image_url?: string | null;
   created_at: string;
   updated_at: string;
 }

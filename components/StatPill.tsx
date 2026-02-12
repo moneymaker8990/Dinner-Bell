@@ -1,3 +1,4 @@
+import React from 'react';
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
@@ -12,7 +13,7 @@ interface StatPillProps {
   style?: ViewStyle;
 }
 
-export function StatPill({ label, variant = 'default', style }: StatPillProps) {
+export const StatPill = React.memo(function StatPill({ label, variant = 'default', style }: StatPillProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
 
@@ -34,7 +35,7 @@ export function StatPill({ label, variant = 'default', style }: StatPillProps) {
       <Text style={[styles.label, { color: textColor }]}>{label}</Text>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   pill: {

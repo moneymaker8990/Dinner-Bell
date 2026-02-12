@@ -281,5 +281,102 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['event_prep_tasks']['Insert']>;
       };
     };
+    Functions: {
+      create_event: {
+        Args: {
+          p_title: string;
+          p_description: string | null;
+          p_start_time: string;
+          p_bell_time: string;
+          p_bell_sound: string;
+          p_end_time: string | null;
+          p_timezone: string;
+          p_address_line1: string;
+          p_address_line2: string | null;
+          p_city: string;
+          p_state: string;
+          p_postal_code: string;
+          p_country: string;
+          p_location_name: string | null;
+          p_location_notes: string | null;
+          p_invite_note: string | null;
+          p_invite_token: string;
+          p_theme_slug: string | null;
+          p_accent_color: string | null;
+          p_capacity: number | null;
+          p_is_public: boolean;
+        };
+        Returns: string;
+      };
+      get_event_full_for_guest: {
+        Args: {
+          p_event_id: string;
+          p_user_id: string | null;
+        };
+        Returns: unknown;
+      };
+      get_user_id_by_email: {
+        Args: {
+          p_email: string;
+        };
+        Returns: string | null;
+      };
+      get_event_by_invite: {
+        Args: {
+          p_event_id: string;
+          p_token: string;
+        };
+        Returns: unknown[];
+      };
+      get_invite_preview: {
+        Args: {
+          p_event_id: string;
+          p_token: string;
+        };
+        Returns: unknown;
+      };
+      add_guest_by_invite: {
+        Args: {
+          p_event_id: string;
+          p_token: string;
+          p_guest_name: string;
+          p_guest_phone_or_email: string;
+          p_rsvp_status: RsvpStatus;
+          p_wants_reminders: boolean;
+        };
+        Returns: string;
+      };
+      add_guest_by_host: {
+        Args: {
+          p_event_id: string;
+          p_guest_email: string;
+          p_guest_name: string | null;
+        };
+        Returns: string;
+      };
+      add_guest_by_host_phone: {
+        Args: {
+          p_event_id: string;
+          p_guest_phone: string;
+          p_guest_name: string | null;
+        };
+        Returns: string;
+      };
+      claim_bring_item: {
+        Args: {
+          p_bring_item_id: string;
+          p_guest_id: string;
+          p_claimed_quantity: string | null;
+          p_claim_message: string | null;
+        };
+        Returns: boolean;
+      };
+      get_push_token_by_phone: {
+        Args: {
+          p_normalized_phone: string;
+        };
+        Returns: string | null;
+      };
+    };
   };
 }

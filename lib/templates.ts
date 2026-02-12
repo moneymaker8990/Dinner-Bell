@@ -13,12 +13,18 @@ export interface EventTemplate {
   created_at: string;
 }
 
-/** Accent colors per theme for visual consistency */
+/**
+ * Theme contract: map template/seasonal slugs to accent token sets.
+ * Values are design-system aligned (use with Colors for contrast).
+ */
 export const THEME_ACCENT: Record<string, string> = {
   taco_night: '#E67E22',
   potluck: '#27AE60',
   game_night: '#8E44AD',
   brunch: '#F39C12',
+  dinner_party: '#C79A2B',
+  birthday: '#8E44AD',
+  holiday: '#D45A4E',
 };
 
 export async function fetchTemplates(): Promise<EventTemplate[]> {

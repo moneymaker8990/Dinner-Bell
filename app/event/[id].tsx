@@ -1,11 +1,30 @@
+import { AnimatedCountdown } from '@/components/AnimatedCountdown';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { AppBottomSheet } from '@/components/AppBottomSheet';
 import { Avatar } from '@/components/Avatar';
 import { BringListItem } from '@/components/BringListItem';
+import { FloatingLabelInput } from '@/components/FloatingLabelInput';
+import { GradientHeader } from '@/components/GradientHeader';
+import { ProgressBar } from '@/components/ProgressBar';
 import { RingBellButton } from '@/components/RingBellButton';
+import { SkeletonCardList } from '@/components/SkeletonLoader';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { Copy } from '@/constants/Copy';
+import { lineHeight, radius, spacing, typography } from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
+import { useEvent, useInvalidateEvent } from '@/hooks/useEvent';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+import {
+    trackCalendarAdded,
+    trackChatMessageSent,
+    trackEventCancelled,
+    trackGuestAdded,
+    trackMapsOpened,
+    trackScreenViewed,
+} from '@/lib/analytics';
 import { addEventToCalendar } from '@/lib/calendar';
 import { createDemoEvent } from '@/lib/demoEvent';
 import { hapticSuccess, hapticTap } from '@/lib/haptics';
@@ -13,10 +32,12 @@ import { addGuestByHost, addGuestByHostPhone, normalizePhoneForLookup, sendInvit
 import { supabase } from '@/lib/supabase';
 import { useContactsPicker } from '@/lib/useContactsPicker';
 import type { BringItemRow, EventGuest, EventWithDetails, MenuItemRow, MenuSection, ScheduleBlockRow } from '@/types/events';
+import GorhomBottomSheet from '@gorhom/bottom-sheet';
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, TextInput } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, FlatList, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, TextInput } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -29,7 +50,7 @@ function formatCountdown(bellTime: string): string {
   const bell = new Date(bellTime);
   const now = new Date();
   const diff = bell.getTime() - now.getTime();
-  if (diff <= 0) return 'Bell time passed';
+  if (diff <= 0) return Copy.event.bellTimePassed;
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   return `${hours}h ${mins}m`;
@@ -40,6 +61,25 @@ function fullAddress(e: EventWithDetails): string {
   return parts.join(', ');
 }
 
+type ChatMessageItemProps = {
+  item: { id: string; user_id: string; body: string; created_at: string };
+  currentUserId: string | undefined;
+  tintColor: string;
+};
+
+const ChatMessageItem = React.memo(function ChatMessageItem({
+  item,
+  currentUserId,
+  tintColor,
+}: ChatMessageItemProps) {
+  return (
+    <View style={[styles.chatBubble, item.user_id === currentUserId ? { alignSelf: 'flex-end', backgroundColor: tintColor + '30' } : { alignSelf: 'flex-start' }]}>
+      <Text style={styles.chatBody}>{item.body}</Text>
+      <Text style={styles.chatTime}>{new Date(item.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</Text>
+    </View>
+  );
+});
+
 export default function EventDetailScreen() {
   const params = useLocalSearchParams<{ id: string; guestId?: string }>();
   const id = params.id;
@@ -48,6 +88,7 @@ export default function EventDetailScreen() {
   const { user } = useAuth();
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
+  const reduceMotion = useReducedMotion();
   const [event, setEvent] = useState<EventWithDetails | null>(null);
   const [menuSections, setMenuSections] = useState<(MenuSection & { menu_items: MenuItemRow[] })[]>([]);
   const [bringItems, setBringItems] = useState<BringItemRow[]>([]);
@@ -72,6 +113,15 @@ export default function EventDetailScreen() {
   const [newMessage, setNewMessage] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
   const bringListCompleteShown = useRef(false);
+  const inviteSheetRef = useRef<GorhomBottomSheet>(null);
+  const chatSheetRef = useRef<GorhomBottomSheet>(null);
+  const contactsSheetRef = useRef<GorhomBottomSheet>(null);
+
+  const { data: eventData, isLoading: queryLoading, error: queryError } = useEvent(
+    id !== '__demo__' && user ? id : undefined,
+    user?.id
+  );
+  const invalidateEvent = useInvalidateEvent();
 
   const toast = useToast();
   const guestById = useCallback(() => {
@@ -88,6 +138,10 @@ export default function EventDetailScreen() {
   const guestName = currentGuest?.guest_name ?? undefined;
 
   useEffect(() => {
+    trackScreenViewed('EventDetail');
+  }, []);
+
+  useEffect(() => {
     if (!id) return;
     const fetch = async () => {
       if (id === '__demo__') {
@@ -101,12 +155,12 @@ export default function EventDetailScreen() {
         return;
       }
       if (!user && urlGuestId) {
-        const { data: full, error: rpcError } = await (supabase as any).rpc('get_event_full_for_guest', {
+        const { data: full, error: rpcError } = await supabase.rpc('get_event_full_for_guest', {
           p_event_id: id,
           p_guest_id: urlGuestId,
         });
         if (rpcError || !full) {
-          setError('Event not found');
+          setError(Copy.event.notFound);
           setLoading(false);
           return;
         }
@@ -135,23 +189,39 @@ export default function EventDetailScreen() {
         return;
       }
 
-      const { data: eventData, error: eventError } = await supabase
+      // If React Query has data for this event, use it
+      if (eventData && user) {
+        setEvent(eventData.event);
+        setMenuSections(eventData.menuSections);
+        setBringItems(eventData.bringItems);
+        setScheduleBlocks(eventData.scheduleBlocks);
+        setGuests(eventData.guests);
+        setHostName(eventData.hostName);
+        setCoHostIds(eventData.coHostIds);
+        // Find current guest
+        const me = eventData.guests.find((g) => g.user_id === user.id) ?? eventData.guests.find((g) => g.guest_phone_or_email === user.email);
+        setCurrentGuest(me ?? null);
+        setLoading(false);
+        return;
+      }
+
+      const { data: rawEventData, error: eventError } = await supabase
         .from('events')
         .select('*')
         .eq('id', id)
         .single();
-      if (eventData && (eventData as EventWithDetails).is_cancelled) {
-        setError('This event has been cancelled');
+      if (rawEventData && (rawEventData as EventWithDetails).is_cancelled) {
+        setError(Copy.event.cancelled);
         setLoading(false);
         return;
       }
-      if (eventError || !eventData) {
-        setError('Event not found');
+      if (eventError || !rawEventData) {
+        setError(Copy.event.notFound);
         setLoading(false);
         return;
       }
-      setEvent(eventData as EventWithDetails);
-      const { data: hostProfile } = await supabase.from('profiles').select('name').eq('id', (eventData as EventWithDetails).host_user_id).single();
+      setEvent(rawEventData as EventWithDetails);
+      const { data: hostProfile } = await supabase.from('profiles').select('name').eq('id', (rawEventData as EventWithDetails).host_user_id).single();
       setHostName((hostProfile as { name?: string } | null)?.name ?? null);
 
       const [{ data: sections }, { data: items }, { data: bring }, { data: blocks }, { data: guestList }, { data: coHostsData }] = await Promise.all([
@@ -186,7 +256,7 @@ export default function EventDetailScreen() {
       setLoading(false);
     };
     fetch();
-  }, [id, user?.id ?? null, urlGuestId]);
+  }, [id, user?.id ?? null, urlGuestId, eventData]);
 
   useEffect(() => {
     if (!id || id === '__demo__') return;
@@ -194,6 +264,7 @@ export default function EventDetailScreen() {
       .channel(`bring_items:${id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bring_items', filter: `event_id=eq.${id}` }, () => {
         supabase.from('bring_items').select('*').eq('event_id', id).order('sort_order').then(({ data }) => setBringItems(data ?? []));
+        invalidateEvent(id);
       })
       .subscribe();
     return () => {
@@ -207,6 +278,7 @@ export default function EventDetailScreen() {
       .channel(`event_guests:${id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'event_guests', filter: `event_id=eq.${id}` }, () => {
         supabase.from('event_guests').select('*').eq('event_id', id).then(({ data }) => setGuests(data ?? []));
+        invalidateEvent(id);
       })
       .subscribe();
     return () => {
@@ -248,9 +320,10 @@ export default function EventDetailScreen() {
   const sendMessage = async () => {
     if (!id || !user || !newMessage.trim()) return;
     setSendingMessage(true);
-    await supabase.from('event_messages').insert({ event_id: id, user_id: user.id, body: newMessage.trim() });
+    const { error } = await supabase.from('event_messages').insert({ event_id: id, user_id: user.id, body: newMessage.trim() });
     setNewMessage('');
     setSendingMessage(false);
+    if (!error) trackChatMessageSent(id);
   };
 
   const handleNavigate = () => {
@@ -266,6 +339,7 @@ export default function EventDetailScreen() {
       ? `https://maps.apple.com/?daddr=${address}`
       : `https://www.google.com/maps/dir/?api=1&destination=${address}`;
     Linking.openURL(url);
+    trackMapsOpened(id);
   };
 
   const handleArrived = () => {
@@ -274,7 +348,7 @@ export default function EventDetailScreen() {
     supabase.from('event_guests').update({ arrival_status: 'arrived', arrived_at: new Date().toISOString() }).eq('id', guestId).then(() => {
       supabase.from('event_guests').select('*').eq('event_id', id).then(({ data }) => setGuests(data ?? []));
     });
-    toast.show("You're here! Host has been notified.");
+    toast.show(Copy.toast.youreHere);
   };
 
   const handleShare = async () => {
@@ -300,12 +374,13 @@ export default function EventDetailScreen() {
       location: fullAddress(event),
       url: `https://dinnerbell.app/event/${id}`,
     });
-    if (result.ok) toast.show('Added to your calendar.');
-    else toast.show(result.message ?? 'Could not add to calendar.');
+    trackCalendarAdded(id, result.ok);
+    if (result.ok) toast.show(Copy.toast.addedToCalendar);
+    else toast.show(result.message ?? Copy.toast.calendarFailed);
   };
 
   const handleMarkProvided = async (itemId: string) => {
-    await (supabase as any).from('bring_items').update({ status: 'provided' }).eq('id', itemId);
+    await supabase.from('bring_items').update({ status: 'provided' }).eq('id', itemId);
   };
 
   const refreshBringItems = () => {
@@ -315,7 +390,26 @@ export default function EventDetailScreen() {
 
   const handleCancelEvent = () => {
     if (!id || !event || !isHost) return;
-    (supabase as any).from('events').update({ is_cancelled: true }).eq('id', id).eq('host_user_id', user!.id).then(() => router.replace('/(tabs)'));
+    Alert.alert(
+      'Cancel Event',
+      'This will cancel the event for all guests. This cannot be undone.',
+      [
+        { text: 'Keep Event', style: 'cancel' },
+        {
+          text: 'Cancel Event',
+          style: 'destructive',
+          onPress: () => {
+            supabase.from('events').update({ is_cancelled: true }).eq('id', id).eq('host_user_id', user!.id).then(({ error }) => {
+              if (!error) {
+                trackEventCancelled(id);
+                invalidateEvent(id);
+                router.replace('/(tabs)');
+              }
+            });
+          },
+        },
+      ]
+    );
   };
 
   const openInviteModal = () => {
@@ -325,6 +419,7 @@ export default function EventDetailScreen() {
     setInvitePhoneName('');
     setInviteError(null);
     setInviteModalVisible(true);
+    inviteSheetRef.current?.snapToIndex(0);
   };
 
   const handleAddSelectedFromContacts = async () => {
@@ -341,9 +436,12 @@ export default function EventDetailScreen() {
     }
     setAddingFromContacts(false);
     contactsPicker.setModalVisible(false);
+    contactsSheetRef.current?.close();
     contactsPicker.setSelectedIds(new Set());
     supabase.from('event_guests').select('*').eq('event_id', id).then(({ data }) => setGuests(data ?? []));
-    toast.show(added > 0 ? `Added ${added} guest${added > 1 ? 's' : ''}; push sent to those who have the app.` : 'No guests added.');
+    invalidateEvent(id);
+    if (added > 0) trackGuestAdded(id, 'contacts');
+    toast.show(added > 0 ? Copy.toast.guestsAdded(added) : Copy.toast.noGuestsAdded);
   };
 
   const handleAddGuestByPhone = async () => {
@@ -361,10 +459,12 @@ export default function EventDetailScreen() {
     const guestId = await addGuestByHostPhone(id, normalized, invitePhoneName.trim() || undefined);
     if (guestId) {
       await sendInvitePushByPhone(id, normalized);
+      trackGuestAdded(id, 'phone');
       setInvitePhone('');
       setInvitePhoneName('');
       supabase.from('event_guests').select('*').eq('event_id', id).then(({ data }) => setGuests(data ?? []));
-      toast.show('Guest added; push sent if they have the app.');
+      invalidateEvent(id);
+      toast.show(Copy.toast.guestAdded);
     } else {
       setInviteError('Could not add guest');
     }
@@ -373,7 +473,7 @@ export default function EventDetailScreen() {
 
   const handleAddGuestByEmail = async () => {
     if (!id || !inviteEmail.trim()) {
-      setInviteError('Enter an email');
+      setInviteError(Copy.event.enterEmail);
       return;
     }
     setInviteSubmitting(true);
@@ -381,9 +481,11 @@ export default function EventDetailScreen() {
     const guestId = await addGuestByHost(id, inviteEmail.trim(), inviteName.trim() || undefined);
     if (guestId) {
       await sendInvitePush(id, inviteEmail.trim());
+      trackGuestAdded(id, 'email');
       setInviteEmail('');
       setInviteName('');
       supabase.from('event_guests').select('*').eq('event_id', id).then(({ data }) => setGuests(data ?? []));
+      invalidateEvent(id);
     } else {
       setInviteError('Could not add guest');
     }
@@ -397,49 +499,77 @@ export default function EventDetailScreen() {
       await Share.share({ message: `You're invited to ${event.title}. RSVP: ${url}`, url });
     } catch (_) {}
     setInviteModalVisible(false);
+    inviteSheetRef.current?.close();
   };
 
   const handleCopyInviteLink = async () => {
     if (!event?.invite_token) return;
     const url = `https://dinnerbell.app/invite/${id}?token=${event.invite_token}`;
     await Clipboard.setStringAsync(url);
-    toast.show('Invite link copied 🔗');
+    toast.show(Copy.event.inviteLinkCopied);
   };
 
-  if (loading) return <Text style={styles.centered}>Loading...</Text>;
-  if (error || !event) return <Text style={styles.centered}>{error ?? 'Event not found'}</Text>;
+  const goingGuests = useMemo(() => guests.filter((g) => g.rsvp_status === 'going'), [guests]);
+  const lateGuests = useMemo(() => guests.filter((g) => g.rsvp_status === 'late'), [guests]);
+  const maybeGuests = useMemo(() => guests.filter((g) => g.rsvp_status === 'maybe'), [guests]);
+  const arrivedGuests = useMemo(() => guests.filter((g) => (g as EventGuest & { arrived_at?: string }).arrived_at), [guests]);
+  const onTheWayGuests = useMemo(() => guests.filter((g) => (g as EventGuest & { arrival_status?: string }).arrival_status === 'on_the_way'), [guests]);
 
-  const goingGuests = guests.filter((g) => g.rsvp_status === 'going');
-  const lateGuests = guests.filter((g) => g.rsvp_status === 'late');
-  const maybeGuests = guests.filter((g) => g.rsvp_status === 'maybe');
-  const arrivedGuests = guests.filter((g) => (g as EventGuest & { arrived_at?: string }).arrived_at);
-  const onTheWayGuests = guests.filter((g) => (g as EventGuest & { arrival_status?: string }).arrival_status === 'on_the_way');
+  const allTags = useMemo(
+    () => Array.from(new Set(menuSections.flatMap((s) => s.menu_items.flatMap((i) => i.dietary_tags ?? [])))),
+    [menuSections],
+  );
+  const filteredSections = useMemo(
+    () =>
+      dietaryFilter
+        ? menuSections
+            .map((sec) => ({
+              ...sec,
+              menu_items: sec.menu_items.filter((i) => (i.dietary_tags ?? []).includes(dietaryFilter)),
+            }))
+            .filter((sec) => sec.menu_items.length > 0)
+        : menuSections,
+    [menuSections, dietaryFilter],
+  );
 
-  const accentColor = (event as EventWithDetails & { accent_color?: string | null }).accent_color ?? colors.tint;
+  if (loading) {
+    return (
+      <View style={[styles.container, { padding: spacing.lg }]}>
+        <SkeletonCardList count={2} />
+      </View>
+    );
+  }
+  if (error || !event) {
+    return (
+      <View style={[styles.container, styles.centered, { padding: spacing.xl }]}>
+        <Text style={[styles.errorTitle, { color: colors.textPrimary }]} accessibilityRole="header">{error ?? Copy.event.notFound}</Text>
+        <Text style={[styles.errorBody, { color: colors.textSecondary }]}>{Copy.event.notFoundBody}</Text>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {(event as EventWithDetails & { accent_color?: string | null }).accent_color ? (
-        <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
-      ) : null}
-      <Text style={styles.title}>{event.title}</Text>
-      {hostName ? (
-        <Text style={styles.hostName}>
-          Hosted by {hostName}
-          {isHost ? ' (Host)' : isCoHost ? ' (Co-host)' : guestId ? ' (Guest)' : ''}
-        </Text>
-      ) : null}
-      <Text style={styles.countdown}>{formatCountdown(event.bell_time)}</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+      <GradientHeader
+        title={event.title}
+        subtitle={hostName ? Copy.event.hostedBy(hostName) : undefined}
+        onBack={() => router.back()}
+        height={200}
+        coverImageUrl={event?.cover_image_url}
+      >
+        <AnimatedCountdown bellTime={event.bell_time} compact />
+      </GradientHeader>
+      <Animated.View entering={FadeInDown.duration(400)} style={styles.content}>
       {isInEventWindow && (
         <View style={[styles.inEventBanner, { backgroundColor: colors.tint + '20', borderColor: colors.tint + '50' }]}>
-          <Text style={styles.inEventTitle}>{isPastBell ? 'Dinner is on' : `Bell in ${formatCountdown(event.bell_time)}`}</Text>
+          <Text style={styles.inEventTitle} accessibilityRole="header">{isPastBell ? Copy.event.dinnerIsOn : Copy.event.bellIn(formatCountdown(event.bell_time))}</Text>
           <View style={styles.quickActionsRow}>
             {isHostOrCoHost && (
               <RingBellButton eventId={event.id} bellSound={(event as EventWithDetails & { bell_sound?: string }).bell_sound} />
             )}
             {(user && (isHost || guestId)) && (
-              <Pressable style={[styles.quickActionChip, { borderColor: colors.tint }]} onPress={() => setChatVisible(true)}>
-                <Text style={[styles.quickActionChipText, { color: colors.tint }]}>Open chat</Text>
+              <Pressable style={[styles.quickActionChip, { borderColor: colors.tint }]} onPress={() => { setChatVisible(true); chatSheetRef.current?.snapToIndex(0); }} accessibilityRole="button" accessibilityLabel="Open event chat">
+                <Text style={[styles.quickActionChipText, { color: colors.tint }]}>{Copy.event.openChat}</Text>
               </Pressable>
             )}
           </View>
@@ -450,40 +580,40 @@ export default function EventDetailScreen() {
       )}
       {isHostOrCoHost && (
         <View style={styles.hostActions}>
-          <Pressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push(`/event/${id}/edit`)}>
-            <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>Edit event</Text>
-          </Pressable>
-          <Pressable style={styles.buttonSecondary} onPress={openInviteModal}>
+          <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push(`/event/${id}/edit`)} accessibilityRole="button" accessibilityLabel="Edit event">
+            <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.event.editEvent}</Text>
+          </AnimatedPressable>
+          <AnimatedPressable style={styles.buttonSecondary} onPress={openInviteModal} accessibilityRole="button" accessibilityLabel="Invite more">
             <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Invite more</Text>
-          </Pressable>
+          </AnimatedPressable>
           {!isWeb && (
-            <Pressable style={styles.buttonSecondary} onPress={contactsPicker.openPicker}>
+            <AnimatedPressable style={styles.buttonSecondary} onPress={() => { contactsPicker.openPicker(); contactsSheetRef.current?.snapToIndex(0); }} accessibilityRole="button" accessibilityLabel="Add from contacts">
               <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Add from contacts</Text>
-            </Pressable>
+            </AnimatedPressable>
           )}
           {isHost && (
-            <Pressable style={styles.cancelEventBtn} onPress={handleCancelEvent}>
-              <Text style={styles.cancelEventText}>Cancel event</Text>
-            </Pressable>
+            <AnimatedPressable style={styles.cancelEventBtn} onPress={handleCancelEvent} accessibilityRole="button" accessibilityLabel="Cancel event">
+              <Text style={[styles.cancelEventText, { color: colors.error }]}>{Copy.event.cancelEvent}</Text>
+            </AnimatedPressable>
           )}
         </View>
       )}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Location</Text>
+        <Text style={styles.sectionTitle}>{Copy.common.location}</Text>
         <Text style={styles.body}>{fullAddress(event)}</Text>
         {event.location_notes ? (
           <View style={[styles.arrivalNotesCard, { backgroundColor: colors.tint + '18', borderColor: colors.tint + '40' }]}>
-            <Text style={styles.arrivalNotesLabel}>Arrival notes</Text>
+            <Text style={styles.arrivalNotesLabel}>{Copy.event.arrivalNotes}</Text>
             <Text style={styles.arrivalNotesText}>{event.location_notes}</Text>
           </View>
         ) : null}
-        <Pressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={handleNavigate}>
-          <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>Navigate</Text>
-        </Pressable>
+        <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={handleNavigate} accessibilityRole="button" accessibilityLabel="Open location in maps">
+          <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.common.navigate}</Text>
+        </AnimatedPressable>
         {!isHost && guestId && (currentGuest as EventGuest & { arrival_status?: string })?.arrival_status !== 'arrived' && (
           <>
             <View style={styles.etaRow}>
-              <Text style={styles.etaLabel}>I'm </Text>
+              <Text style={styles.etaLabel}>{Copy.event.imOnMyWay}</Text>
               {[5, 10, 15].map((mins) => (
                 <Pressable
                   key={mins}
@@ -494,49 +624,47 @@ export default function EventDetailScreen() {
                       supabase.from('event_guests').select('*').eq('event_id', id).then(({ data }) => setGuests(data ?? []));
                     });
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Set ETA to ${mins} minutes`}
                 >
-                  <Text style={[styles.etaBtnText, { color: colors.tint }]}>{mins} min away</Text>
+                  <Text style={[styles.etaBtnText, { color: colors.tint }]}>{mins}{Copy.event.minAway}</Text>
                 </Pressable>
               ))}
             </View>
-            <Pressable style={[styles.buttonSecondary, { marginTop: 8 }]} onPress={handleArrived}>
-              <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>I've arrived</Text>
-            </Pressable>
+            <AnimatedPressable style={[styles.buttonSecondary, { marginTop: spacing.sm }]} onPress={handleArrived} accessibilityRole="button" accessibilityLabel="I've arrived">
+              <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.event.iveArrived}</Text>
+            </AnimatedPressable>
           </>
         )}
-        <Pressable style={styles.buttonSecondary} onPress={handleCopyAddress}>
-          <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Copy address</Text>
-        </Pressable>
-        <Pressable style={styles.buttonSecondary} onPress={handleAddToCalendar}>
-          <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Add to calendar</Text>
-        </Pressable>
+        <AnimatedPressable style={styles.buttonSecondary} onPress={handleCopyAddress} accessibilityRole="button" accessibilityLabel="Copy address">
+          <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.common.copyAddress}</Text>
+        </AnimatedPressable>
+        <AnimatedPressable style={styles.buttonSecondary} onPress={handleAddToCalendar} accessibilityRole="button" accessibilityLabel="Add event to calendar">
+          <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.common.addToCalendar}</Text>
+        </AnimatedPressable>
       </View>
-      {menuSections.length > 0 && (() => {
-        const allTags = Array.from(new Set(menuSections.flatMap((s) => s.menu_items.flatMap((i) => i.dietary_tags ?? []))));
-        const filteredSections = dietaryFilter
-          ? menuSections.map((sec) => ({
-              ...sec,
-              menu_items: sec.menu_items.filter((i) => (i.dietary_tags ?? []).includes(dietaryFilter)),
-            })).filter((sec) => sec.menu_items.length > 0)
-          : menuSections;
-        return (
+      {menuSections.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Menu</Text>
+            <Text style={styles.sectionTitle} accessibilityRole="header">{Copy.common.menu}</Text>
             {allTags.length > 0 && (
               <View style={styles.dietaryFilterRow}>
                 <Pressable
-                  style={[styles.dietaryFilterChip, !dietaryFilter && styles.dietaryFilterChipActive]}
+                  style={[styles.dietaryFilterChip, { backgroundColor: colors.border }, !dietaryFilter && styles.dietaryFilterChipActive]}
                   onPress={() => setDietaryFilter(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Show all menu items"
                 >
-                  <Text style={styles.dietaryFilterChipText}>All</Text>
+                  <Text style={[styles.dietaryFilterChipText, { color: colors.textPrimary }]}>All</Text>
                 </Pressable>
                 {allTags.map((tag) => (
                   <Pressable
                     key={tag}
-                    style={[styles.dietaryFilterChip, dietaryFilter === tag && styles.dietaryFilterChipActive]}
+                    style={[styles.dietaryFilterChip, { backgroundColor: colors.border }, dietaryFilter === tag && styles.dietaryFilterChipActive]}
                     onPress={() => setDietaryFilter(dietaryFilter === tag ? null : tag)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Filter by ${tag}`}
                   >
-                    <Text style={styles.dietaryFilterChipText}>{tag}</Text>
+                    <Text style={[styles.dietaryFilterChipText, { color: colors.textPrimary }]}>{tag}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -563,23 +691,21 @@ export default function EventDetailScreen() {
               </View>
             ))}
           </View>
-        );
-      })()}
+      )}
       {bringItems.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Bring list</Text>
+          <Text style={styles.sectionTitle} accessibilityRole="header">{Copy.common.bringList}</Text>
           {(() => {
             const claimed = bringItems.filter((i) => i.status === 'claimed' || i.status === 'provided').length;
             const total = bringItems.length;
             const progress = total > 0 ? claimed / total : 0;
             return (
               <>
-                <View style={styles.progressRow}>
-                  <View style={[styles.progressTrack, { backgroundColor: colors.border }]}>
-                    <View style={[styles.progressFill, { width: `${progress * 100}%`, backgroundColor: colors.tint }]} />
-                  </View>
-                  <Text style={styles.progressLabel}>{claimed} of {total} claimed</Text>
-                </View>
+                <ProgressBar
+                  progress={progress}
+                  label={Copy.event.ofClaimed(claimed, total)}
+                  showPercent
+                />
                 {bringItems.map((item) => (
                   <View key={item.id}>
                     <BringListItem
@@ -591,8 +717,8 @@ export default function EventDetailScreen() {
                       onClaimed={refreshBringItems}
                     />
                     {isHost && item.status === 'claimed' && (
-                      <Pressable style={styles.smallBtn} onPress={() => handleMarkProvided(item.id)}>
-                        <Text style={[styles.smallBtnText, { color: colors.tint }]}>Mark provided</Text>
+                      <Pressable style={styles.smallBtn} onPress={() => handleMarkProvided(item.id)} accessibilityRole="button" accessibilityLabel="Mark provided">
+                        <Text style={[styles.smallBtnText, { color: colors.tint }]}>{Copy.event.markProvided}</Text>
                       </Pressable>
                     )}
                   </View>
@@ -604,7 +730,7 @@ export default function EventDetailScreen() {
       )}
       {scheduleBlocks.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Schedule</Text>
+          <Text style={styles.sectionTitle} accessibilityRole="header">{Copy.common.schedule}</Text>
           {scheduleBlocks.map((block) => (
             <Text key={block.id} style={styles.body}>
               {block.time ? new Date(block.time).toLocaleTimeString() : '—'} {block.title}
@@ -614,7 +740,7 @@ export default function EventDetailScreen() {
       )}
       {isHost && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>RSVP board</Text>
+          <Text style={styles.sectionTitle} accessibilityRole="header">{Copy.common.rsvpBoard}</Text>
           <View style={styles.rsvpBoardRow}>
             <View style={styles.rsvpCol}>
               <Text style={styles.rsvpColLabel}>Going</Text>
@@ -625,7 +751,7 @@ export default function EventDetailScreen() {
               </View>
             </View>
             <View style={styles.rsvpCol}>
-              <Text style={styles.rsvpColLabel}>Running late</Text>
+              <Text style={styles.rsvpColLabel}>{Copy.event.runningLate}</Text>
               <View style={styles.avatarRow}>
                 {lateGuests.map((g) => (
                   <Avatar key={g.id} initials={initials(g.guest_name)} size={36} />
@@ -633,7 +759,7 @@ export default function EventDetailScreen() {
               </View>
             </View>
             <View style={styles.rsvpCol}>
-              <Text style={styles.rsvpColLabel}>Maybe</Text>
+              <Text style={styles.rsvpColLabel}>{Copy.event.maybe}</Text>
               <View style={styles.avatarRow}>
                 {maybeGuests.map((g) => (
                   <Avatar key={g.id} initials={initials(g.guest_name)} size={36} />
@@ -653,7 +779,7 @@ export default function EventDetailScreen() {
           )}
           {onTheWayGuests.length > 0 && (
             <Text style={styles.onTheWayText}>
-              On the way: {onTheWayGuests.map((g) => {
+              {Copy.event.onTheWay}{onTheWayGuests.map((g) => {
                 const eta = (g as EventGuest & { eta_minutes?: number }).eta_minutes;
                 return `${g.guest_name}${eta ? ` ~${eta} min` : ''}`;
               }).join(', ')}
@@ -662,112 +788,128 @@ export default function EventDetailScreen() {
         </View>
       )}
       {isEventOver && (
-        <Pressable style={[styles.button, { backgroundColor: colors.primaryButton }, { marginBottom: 16 }]} onPress={() => router.push(`/event/${id}/recap`)}>
+        <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }, { marginBottom: spacing.lg }]} onPress={() => router.push(`/event/${id}/recap`)} accessibilityRole="button" accessibilityLabel="View recap">
           <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>View recap</Text>
-        </Pressable>
+        </AnimatedPressable>
       )}
       {!isHost && (
         <View style={styles.guestShareRow}>
-          <Pressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={handleShare}>
+          <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={handleShare} accessibilityRole="button" accessibilityLabel="Share event">
             <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>Share link</Text>
-          </Pressable>
-          <Pressable style={styles.buttonSecondary} onPress={handleCopyInviteLink}>
+          </AnimatedPressable>
+          <AnimatedPressable style={styles.buttonSecondary} onPress={handleCopyInviteLink} accessibilityRole="button" accessibilityLabel="Copy invite link">
             <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Copy invite link</Text>
-          </Pressable>
+          </AnimatedPressable>
         </View>
       )}
 
       {isHost && (
-        <Modal visible={inviteModalVisible} transparent animationType="fade">
-          <Pressable style={styles.modalOverlay} onPress={() => setInviteModalVisible(false)}>
-            <Pressable style={[styles.modalContent, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>Invite more</Text>
-              <Text style={styles.label}>Guest email</Text>
-              <TextInput
-                style={[styles.input, { borderColor: colors.inputBorder }]}
+        <AppBottomSheet
+          ref={inviteSheetRef}
+          snapPoints={['70%', '90%']}
+          index={inviteModalVisible ? 0 : -1}
+          onClose={() => setInviteModalVisible(false)}
+          title="Invite more"
+          scrollable
+        >
+              <FloatingLabelInput
+                label={Copy.placeholder.email}
                 value={inviteEmail}
                 onChangeText={setInviteEmail}
-                placeholder="email@example.com"
-                placeholderTextColor="#888"
+                onClear={() => setInviteEmail('')}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                returnKeyType="next"
+                autoComplete="email"
+                style={{ marginBottom: spacing.md }}
               />
-              <Text style={styles.label}>Name (optional)</Text>
-              <TextInput
-                style={[styles.input, { borderColor: colors.inputBorder }]}
+              <FloatingLabelInput
+                label={Copy.placeholder.guestName}
                 value={inviteName}
                 onChangeText={setInviteName}
-                placeholder="Guest name"
-                placeholderTextColor="#888"
+                onClear={() => setInviteName('')}
+                returnKeyType="done"
+                autoComplete="name"
+                autoCapitalize="words"
+                style={{ marginBottom: spacing.md }}
               />
-              {inviteError ? <Text style={styles.errorText}>{inviteError}</Text> : null}
-              <Pressable
+              {inviteError ? <Text style={[styles.errorText, { color: colors.error }]}>{inviteError}</Text> : null}
+              <AnimatedPressable
                 style={[styles.button, { backgroundColor: colors.primaryButton }, inviteSubmitting && styles.buttonDisabled]}
                 onPress={handleAddGuestByEmail}
                 disabled={inviteSubmitting}
+                accessibilityRole="button"
+                accessibilityLabel="Send email invite"
               >
-                <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{inviteSubmitting ? 'Adding...' : 'Add & send invite'}</Text>
-              </Pressable>
+                <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{inviteSubmitting ? Copy.common.adding : Copy.event.addAndSendInvite}</Text>
+              </AnimatedPressable>
               {!isWeb && (
-                <Pressable style={styles.buttonSecondary} onPress={contactsPicker.openPicker}>
-                  <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Add from contacts</Text>
-                </Pressable>
+                <AnimatedPressable style={styles.buttonSecondary} onPress={() => { contactsPicker.openPicker(); contactsSheetRef.current?.snapToIndex(0); }} accessibilityRole="button" accessibilityLabel="Add from contacts">
+                  <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.common.addFromContacts}</Text>
+                </AnimatedPressable>
               )}
               {isWeb && (
                 <>
-                  <Text style={[styles.label, { marginTop: 12 }]}>Or add by phone</Text>
-                  <TextInput
-                    style={[styles.input, { borderColor: colors.inputBorder }]}
+                  <FloatingLabelInput
+                    label="Phone number"
                     value={invitePhone}
                     onChangeText={setInvitePhone}
-                    placeholder="Phone number"
-                    placeholderTextColor="#888"
+                    onClear={() => setInvitePhone('')}
                     keyboardType="phone-pad"
+                    returnKeyType="next"
+                    autoComplete="tel"
+                    autoCapitalize="none"
+                    style={{ marginTop: spacing.md, marginBottom: spacing.md }}
                   />
-                  <Text style={styles.label}>Name (optional)</Text>
-                  <TextInput
-                    style={[styles.input, { borderColor: colors.inputBorder }]}
+                  <FloatingLabelInput
+                    label={Copy.placeholder.guestName}
                     value={invitePhoneName}
                     onChangeText={setInvitePhoneName}
-                    placeholder="Guest name"
-                    placeholderTextColor="#888"
+                    onClear={() => setInvitePhoneName('')}
+                    returnKeyType="done"
+                    autoComplete="name"
+                    autoCapitalize="words"
+                    style={{ marginBottom: spacing.md }}
                   />
-                  <Pressable
+                  <AnimatedPressable
                     style={[styles.button, { backgroundColor: colors.primaryButton }, inviteSubmitting && styles.buttonDisabled]}
                     onPress={handleAddGuestByPhone}
                     disabled={inviteSubmitting}
+                    accessibilityRole="button"
+                    accessibilityLabel="Send phone invite"
                   >
-                    <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{inviteSubmitting ? 'Adding...' : 'Add by phone & send invite'}</Text>
-                  </Pressable>
+                    <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{inviteSubmitting ? Copy.common.adding : Copy.event.addByPhoneAndSend}</Text>
+                  </AnimatedPressable>
                 </>
               )}
-              <Pressable style={styles.buttonSecondary} onPress={handleShareFromModal}>
-                <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Share link instead</Text>
-              </Pressable>
-              <Pressable style={styles.buttonSecondary} onPress={handleCopyInviteLink}>
-                <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Copy invite link</Text>
-              </Pressable>
-              <Pressable style={styles.modalCancel} onPress={() => setInviteModalVisible(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </Pressable>
-            </Pressable>
-          </Pressable>
-        </Modal>
+              <AnimatedPressable style={styles.buttonSecondary} onPress={handleShareFromModal} accessibilityRole="button" accessibilityLabel="Share event">
+                <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.event.shareLinkInstead}</Text>
+              </AnimatedPressable>
+              <AnimatedPressable style={styles.buttonSecondary} onPress={handleCopyInviteLink} accessibilityRole="button" accessibilityLabel="Copy invite link">
+                <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.common.copyInviteLink}</Text>
+              </AnimatedPressable>
+              <AnimatedPressable style={styles.modalCancel} onPress={() => { inviteSheetRef.current?.close(); setInviteModalVisible(false); }} accessibilityRole="button" accessibilityLabel="Cancel">
+                <Text style={styles.modalCancelText}>{Copy.common.cancel}</Text>
+              </AnimatedPressable>
+        </AppBottomSheet>
       )}
 
-      <Modal visible={chatVisible} transparent animationType="slide">
-        <Pressable style={styles.modalOverlay} onPress={() => setChatVisible(false)}>
-          <Pressable style={[styles.modalContent, styles.chatModalContent, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Event chat</Text>
+      <AppBottomSheet
+        ref={chatSheetRef}
+        snapPoints={['60%', '90%']}
+        index={chatVisible ? 0 : -1}
+        onClose={() => setChatVisible(false)}
+        title="Event chat"
+        scrollable
+      >
             <FlatList
               data={messages}
               keyExtractor={(item) => item.id}
               style={styles.chatList}
+              getItemLayout={(_data, index) => ({ length: 64, offset: 64 * index, index })}
+              ListEmptyComponent={<Text style={[styles.chatEmptyText, { color: colors.textSecondary }]}>{Copy.event.chatEmpty}</Text>}
               renderItem={({ item }) => (
-                <View style={[styles.chatBubble, item.user_id === user?.id ? { alignSelf: 'flex-end', backgroundColor: colors.tint + '30' } : { alignSelf: 'flex-start' }]}>
-                  <Text style={styles.chatBody}>{item.body}</Text>
-                  <Text style={styles.chatTime}>{new Date(item.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</Text>
-                </View>
+                <ChatMessageItem item={item} currentUserId={user?.id} tintColor={colors.tint} />
               )}
             />
             <View style={styles.chatInputRow}>
@@ -775,147 +917,153 @@ export default function EventDetailScreen() {
                 style={[styles.chatInput, { borderColor: colors.inputBorder }]}
                 value={newMessage}
                 onChangeText={setNewMessage}
-                placeholder="Message..."
-                placeholderTextColor="#888"
+                placeholder={Copy.placeholder.chatMessage}
+                placeholderTextColor={colors.placeholder}
                 onSubmitEditing={sendMessage}
+                returnKeyType="send"
               />
-              <Pressable style={[styles.chatSendBtn, { backgroundColor: colors.primaryButton }, sendingMessage && styles.buttonDisabled]} onPress={sendMessage} disabled={sendingMessage || !newMessage.trim()}>
-                <Text style={[styles.chatSendText, { color: colors.primaryButtonText }]}>Send</Text>
-              </Pressable>
+              <AnimatedPressable style={[styles.chatSendBtn, { backgroundColor: colors.primaryButton }, sendingMessage && styles.buttonDisabled]} onPress={sendMessage} disabled={sendingMessage || !newMessage.trim()} accessibilityRole="button" accessibilityLabel="Send message">
+                <Text style={[styles.chatSendText, { color: colors.primaryButtonText }]}>{Copy.common.send}</Text>
+              </AnimatedPressable>
             </View>
-            <Pressable style={styles.modalCancel} onPress={() => setChatVisible(false)}>
-              <Text style={styles.modalCancelText}>Close</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+            <AnimatedPressable style={styles.modalCancel} onPress={() => { chatSheetRef.current?.close(); setChatVisible(false); }} accessibilityRole="button" accessibilityLabel="Close chat">
+              <Text style={styles.modalCancelText}>{Copy.common.close}</Text>
+            </AnimatedPressable>
+      </AppBottomSheet>
 
       {isHost && !isWeb && (
-        <Modal visible={contactsPicker.modalVisible} transparent animationType="fade">
-          <Pressable style={styles.modalOverlay} onPress={() => !addingFromContacts && contactsPicker.setModalVisible(false)}>
-            <Pressable style={[styles.modalContent, styles.contactsModalContent, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>Add from contacts</Text>
+        <AppBottomSheet
+          ref={contactsSheetRef}
+          snapPoints={['60%', '85%']}
+          index={contactsPicker.modalVisible ? 0 : -1}
+          onClose={() => { if (!addingFromContacts) contactsPicker.setModalVisible(false); }}
+          title="Add from contacts"
+          scrollable
+        >
               {contactsPicker.contactsError ? (
-                <Text style={styles.errorText}>{contactsPicker.contactsError}</Text>
+                <Text style={[styles.errorText, { color: colors.error }]}>{contactsPicker.contactsError}</Text>
               ) : contactsPicker.contactsLoading ? (
-                <Text style={styles.body}>Loading contacts...</Text>
+                <Text style={styles.body}>{Copy.common.loadingContacts}</Text>
               ) : contactsPicker.contactsList.length === 0 ? (
-                <Text style={styles.body}>No contacts with phone numbers found.</Text>
+                <Text style={styles.body}>{Copy.common.noContactsFound}</Text>
               ) : (
                 <>
                   <FlatList
                     data={contactsPicker.contactsList}
                     keyExtractor={(item) => item.id}
                     style={styles.contactsList}
+                    getItemLayout={(_data, index) => ({ length: 56, offset: 56 * index, index })}
                     renderItem={({ item }) => (
                       <Pressable
                         style={[styles.contactRow, { borderColor: colors.inputBorder }]}
                         onPress={() => contactsPicker.toggleSelection(item.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Select ${item.name} for invite`}
                       >
                         <Text style={styles.contactRowName}>{item.name}</Text>
                         <Text style={styles.contactRowPhone}>{item.phone}</Text>
-                        <View style={[styles.checkbox, contactsPicker.selectedIds.has(item.id) && { backgroundColor: colors.tint }]} />
+                        <View style={[styles.checkbox, { borderColor: colors.border }, contactsPicker.selectedIds.has(item.id) && { backgroundColor: colors.tint }]} />
                       </Pressable>
                     )}
                   />
-                  <Pressable
+                  <AnimatedPressable
                     style={[styles.button, { backgroundColor: colors.primaryButton }, (addingFromContacts || contactsPicker.selectedIds.size === 0) && styles.buttonDisabled]}
                     onPress={handleAddSelectedFromContacts}
                     disabled={addingFromContacts || contactsPicker.selectedIds.size === 0}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Add ${contactsPicker.selectedIds.size} selected contacts`}
                   >
                     <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>
-                      {addingFromContacts ? 'Adding...' : `Add selected (${contactsPicker.selectedIds.size})`}
+                      {addingFromContacts ? Copy.common.adding : Copy.common.addSelected(contactsPicker.selectedIds.size)}
                     </Text>
-                  </Pressable>
+                  </AnimatedPressable>
                 </>
               )}
-              <Pressable style={styles.modalCancel} onPress={() => !addingFromContacts && contactsPicker.setModalVisible(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </Pressable>
-            </Pressable>
-          </Pressable>
-        </Modal>
+              <AnimatedPressable style={styles.modalCancel} onPress={() => { if (!addingFromContacts) { contactsSheetRef.current?.close(); contactsPicker.setModalVisible(false); } }} accessibilityRole="button" accessibilityLabel="Cancel">
+                <Text style={styles.modalCancelText}>{Copy.common.cancel}</Text>
+              </AnimatedPressable>
+        </AppBottomSheet>
       )}
+      </Animated.View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
-  centered: { flex: 1, textAlign: 'center', marginTop: 40 },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 4 },
-  hostName: { fontSize: 14, opacity: 0.8, marginBottom: 8 },
-  countdown: { fontSize: 16, opacity: 0.8, marginBottom: 16 },
-  hostActions: { marginBottom: 16 },
-  cancelEventBtn: { padding: 16, alignItems: 'center', marginTop: 8 },
-  cancelEventText: { fontSize: 14, color: '#c00', fontWeight: '500' },
-  section: { marginBottom: 24 },
-  rsvpBoardRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: 8 },
+  scrollContent: { paddingBottom: spacing.xxl + spacing.sm },
+  content: { padding: spacing.lg },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: spacing.xxl + spacing.xl + spacing.xs },
+  errorTitle: { fontSize: typography.headline, fontWeight: '600', textAlign: 'center', marginBottom: spacing.sm },
+  errorBody: { fontSize: typography.body, textAlign: 'center', lineHeight: lineHeight.meta },
+  /* title, hostName, countdown moved into GradientHeader */
+  hostActions: { marginBottom: spacing.lg },
+  cancelEventBtn: { padding: spacing.lg, alignItems: 'center', marginTop: spacing.sm },
+  cancelEventText: { fontSize: typography.meta, fontWeight: '500' },
+  section: { marginBottom: spacing.xl },
+  rsvpBoardRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg, marginTop: spacing.sm },
   rsvpCol: { minWidth: 80 },
-  rsvpColLabel: { fontSize: 12, fontWeight: '600', opacity: 0.8, marginBottom: 6 },
-  avatarRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  arrivedRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
-  arrivedLabel: { fontSize: 13, fontWeight: '500', marginRight: 6 },
-  onTheWayText: { fontSize: 13, opacity: 0.85, marginTop: 8 },
-  arrivalNotesCard: { padding: 12, borderRadius: 8, borderWidth: 1, marginVertical: 8 },
-  arrivalNotesLabel: { fontSize: 12, fontWeight: '600', opacity: 0.9, marginBottom: 4 },
-  arrivalNotesText: { fontSize: 14 },
-  etaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 12 },
-  etaLabel: { fontSize: 14 },
-  etaBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1 },
-  etaBtnText: { fontSize: 13, fontWeight: '500' },
-  inEventBanner: { padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 16 },
-  inEventTitle: { fontSize: 18, fontWeight: '600', marginBottom: 12 },
-  quickActionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'center' },
-  quickActionChip: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1 },
-  quickActionChipText: { fontSize: 14, fontWeight: '600' },
+  rsvpColLabel: { fontSize: typography.microLabel, fontWeight: '600', opacity: 0.8, marginBottom: spacing.xs + 2 },
+  avatarRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs + 2 },
+  arrivedRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.md },
+  arrivedLabel: { fontSize: typography.microLabel, fontWeight: '500', marginRight: spacing.xs + 2 },
+  onTheWayText: { fontSize: typography.microLabel, opacity: 0.85, marginTop: spacing.sm },
+  arrivalNotesCard: { padding: spacing.md, borderRadius: spacing.sm, borderWidth: 1, marginVertical: spacing.sm },
+  arrivalNotesLabel: { fontSize: typography.microLabel, fontWeight: '600', opacity: 0.9, marginBottom: spacing.xs },
+  arrivalNotesText: { fontSize: typography.meta },
+  etaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
+  etaLabel: { fontSize: typography.meta },
+  etaBtn: { paddingVertical: spacing.xs + 2, paddingHorizontal: spacing.md, borderRadius: spacing.sm, borderWidth: 1 },
+  etaBtnText: { fontSize: typography.microLabel, fontWeight: '500' },
+  inEventBanner: { padding: spacing.lg, borderRadius: radius.input, borderWidth: 1, marginBottom: spacing.lg },
+  inEventTitle: { fontSize: typography.headline, fontWeight: '600', marginBottom: spacing.md },
+  quickActionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, alignItems: 'center' },
+  quickActionChip: { paddingVertical: spacing.sm + 2, paddingHorizontal: spacing.lg, borderRadius: spacing.sm, borderWidth: 1 },
+  quickActionChipText: { fontSize: typography.meta, fontWeight: '600' },
   chatModalContent: { maxHeight: '80%', minHeight: 300 },
-  chatList: { maxHeight: 240, marginBottom: 12 },
-  chatBubble: { maxWidth: '85%', padding: 10, borderRadius: 12, marginBottom: 6 },
-  chatBody: { fontSize: 15 },
-  chatTime: { fontSize: 11, opacity: 0.7, marginTop: 4 },
-  chatInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  chatInput: { flex: 1, borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 16 },
-  chatSendBtn: { paddingVertical: 12, paddingHorizontal: 20, borderRadius: 8 },
+  chatList: { maxHeight: 240, marginBottom: spacing.md },
+  chatEmptyText: { fontSize: typography.meta, textAlign: 'center', paddingVertical: spacing.xl, opacity: 0.7 },
+  chatBubble: { maxWidth: '85%', padding: spacing.sm + 2, borderRadius: radius.input, marginBottom: spacing.xs + 2 },
+  chatBody: { fontSize: typography.body },
+  chatTime: { fontSize: typography.microLabel, opacity: 0.7, marginTop: spacing.xs },
+  chatInputRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
+  chatInput: { flex: 1, borderWidth: 1, borderRadius: spacing.sm, padding: spacing.md, fontSize: typography.body },
+  chatSendBtn: { paddingVertical: spacing.md, paddingHorizontal: spacing.xl, borderRadius: spacing.sm },
   chatSendText: { fontWeight: '600' },
-  accentBar: { height: 4, marginBottom: 12, borderRadius: 2 },
-  sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
-  dietaryFilterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  dietaryFilterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: 'rgba(128,128,128,0.2)' },
-  dietaryFilterChipActive: { backgroundColor: 'rgba(0,0,0,0.15)' },
-  dietaryFilterChipText: { fontSize: 13, fontWeight: '500' },
-  progressRow: { marginBottom: 12 },
-  progressTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 3 },
-  progressLabel: { fontSize: 12, opacity: 0.8, marginTop: 4 },
-  subsectionTitle: { fontSize: 16, fontWeight: '500', marginTop: 8, marginBottom: 4 },
-  menuItemRow: { marginBottom: 6 },
-  dietaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4, marginLeft: 16 },
-  dietaryChip: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
-  dietaryChipText: { fontSize: 12, fontWeight: '500' },
-  body: { fontSize: 14, marginBottom: 4 },
-  notes: { fontSize: 14, opacity: 0.8, marginTop: 4 },
-  button: { padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 8 },
+  /* accentBar replaced by GradientHeader */
+  sectionTitle: { fontSize: typography.headline, fontWeight: '600', marginBottom: spacing.sm },
+  dietaryFilterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
+  dietaryFilterChip: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, borderRadius: spacing.lg, opacity: 0.6 },
+  dietaryFilterChipActive: { opacity: 1 },
+  dietaryFilterChipText: { fontSize: typography.microLabel, fontWeight: '500' },
+  /* progressRow/Track/Fill/Label replaced by ProgressBar component */
+  subsectionTitle: { fontSize: typography.body, fontWeight: '500', marginTop: spacing.sm, marginBottom: spacing.xs },
+  menuItemRow: { marginBottom: spacing.xs + 2 },
+  dietaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs + 2, marginTop: spacing.xs, marginLeft: spacing.lg },
+  dietaryChip: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: spacing.xs + 2, borderWidth: 1 },
+  dietaryChipText: { fontSize: typography.microLabel, fontWeight: '500' },
+  body: { fontSize: typography.meta, marginBottom: spacing.xs },
+  notes: { fontSize: typography.meta, opacity: 0.8, marginTop: spacing.xs },
+  button: { padding: spacing.lg, borderRadius: spacing.sm, alignItems: 'center', marginTop: spacing.sm },
   buttonText: { fontWeight: '600' },
-  buttonSecondary: { padding: 16, alignItems: 'center', marginTop: 4 },
+  buttonSecondary: { padding: spacing.lg, alignItems: 'center', marginTop: spacing.xs },
   buttonSecondaryText: { fontWeight: '600' },
-  guestShareRow: { marginTop: 8 },
-  smallBtn: { padding: 8, alignItems: 'flex-start', marginTop: 4 },
-  smallBtnText: { fontSize: 14, fontWeight: '500' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  modalContent: { borderRadius: 16, padding: 24, width: '100%', maxWidth: 340 },
-  modalTitle: { fontSize: 20, fontWeight: '600', marginBottom: 16 },
-  label: { fontSize: 14, fontWeight: '500', marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 12 },
-  errorText: { color: '#c00', marginBottom: 8 },
+  guestShareRow: { marginTop: spacing.sm },
+  smallBtn: { padding: spacing.sm, alignItems: 'flex-start', marginTop: spacing.xs },
+  smallBtnText: { fontSize: typography.meta, fontWeight: '500' },
+  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  modalContent: { borderRadius: spacing.lg, padding: spacing.xl, width: '100%', maxWidth: 340 },
+  modalTitle: { fontSize: typography.headline, fontWeight: '600', marginBottom: spacing.lg },
+  label: { fontSize: typography.meta, fontWeight: '500', marginBottom: spacing.xs + 2 },
+  input: { borderWidth: 1, borderRadius: spacing.sm, padding: spacing.md, fontSize: typography.body, marginBottom: spacing.md },
+  errorText: { marginBottom: spacing.sm },
   buttonDisabled: { opacity: 0.6 },
-  modalCancel: { padding: 12, alignItems: 'center', marginTop: 8 },
+  modalCancel: { padding: spacing.md, alignItems: 'center', marginTop: spacing.sm },
   modalCancelText: { fontWeight: '500' },
   contactsModalContent: { maxHeight: '80%' },
-  contactsList: { maxHeight: 280, marginBottom: 12 },
-  contactRow: { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1 },
-  contactRowName: { flex: 1, fontSize: 16, fontWeight: '500' },
-  contactRowPhone: { fontSize: 14, opacity: 0.8, marginRight: 12 },
-  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#888' },
+  contactsList: { maxHeight: 280, marginBottom: spacing.md },
+  contactRow: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, borderBottomWidth: 1 },
+  contactRowName: { flex: 1, fontSize: typography.body, fontWeight: '500' },
+  contactRowPhone: { fontSize: typography.meta, opacity: 0.8, marginRight: spacing.md },
+  checkbox: { width: 22, height: 22, borderRadius: radius.md, borderWidth: 2 },
 });

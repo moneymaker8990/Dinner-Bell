@@ -2,7 +2,7 @@ import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { spacing, typography } from '@/constants/Theme';
+import { lineHeight, radius, spacing, typography } from '@/constants/Theme';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { StyleSheet, View, ViewStyle } from 'react-native';
 
@@ -62,20 +62,20 @@ const styles = StyleSheet.create({
   iconWrap: {
     marginBottom: spacing.lg,
     padding: spacing.xl,
-    borderRadius: 999,
+    borderRadius: radius.chip,
   },
   headline: {
     fontSize: typography.h2,
     fontWeight: '600',
     textAlign: 'center',
     marginBottom: spacing.sm,
-    lineHeight: 28,
+    lineHeight: lineHeight.headline,
   },
   body: {
     fontSize: typography.body,
     textAlign: 'center',
     marginBottom: spacing.xl,
-    lineHeight: 24,
+    lineHeight: lineHeight.body,
     maxWidth: 320,
   },
   ctas: {

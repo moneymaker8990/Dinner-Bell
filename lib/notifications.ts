@@ -36,9 +36,13 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
 }
 
 export async function savePushToken(token: string | null): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user || !token) return;
-  await (supabase as any).from('profiles').update({ push_token: token, updated_at: new Date().toISOString() }).eq('id', user.id);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !token) return;
+    await supabase.from('profiles').update({ push_token: token, updated_at: new Date().toISOString() }).eq('id', user.id);
+  } catch {
+    // Silently fail — push token save is non-critical
+  }
 }
 
 export function addNotificationResponseListener(callback: (response: Notifications.NotificationResponse) => void): () => void {

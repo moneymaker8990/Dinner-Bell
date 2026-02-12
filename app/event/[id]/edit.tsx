@@ -1,17 +1,33 @@
+import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { FloatingLabelInput } from '@/components/FloatingLabelInput';
+import { KeyboardAwareScrollView } from '@/components/KeyboardAwareScrollView';
+import { SkeletonCardList } from '@/components/SkeletonLoader';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { Copy } from '@/constants/Copy';
+import { radius, spacing, typography } from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
+import { trackEventEdited } from '@/lib/analytics';
 import type { CreateEventForm } from '@/lib/eventForm';
 import { generateId } from '@/lib/eventForm';
+import { queryClient } from '@/lib/queryClient';
 import { rescheduleNotificationsForEvent } from '@/lib/rescheduleNotifications';
 import { supabase } from '@/lib/supabase';
 import type { BringItemRow, EventWithDetails, MenuItemRow, MenuSection, ScheduleBlockRow } from '@/types/events';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, TextInput } from 'react-native';
+import { Pressable, StyleSheet, Switch } from 'react-native';
 
-const STEPS = ['Basics', 'Location', 'Menu', 'Bring List', 'Schedule', 'Host tools', 'Review'];
+const STEPS = [
+  Copy.create.stepBasics,
+  Copy.create.stepLocation,
+  Copy.create.stepMenu,
+  Copy.create.stepBringList,
+  Copy.create.stepSchedule,
+  Copy.create.stepHostTools,
+  Copy.create.stepReview,
+];
 const TOTAL_STEPS = 7;
 
 function formFromEvent(
@@ -86,8 +102,6 @@ export default function EditEventScreen() {
   const [newPrepTitle, setNewPrepTitle] = useState('');
   const [addingPrep, setAddingPrep] = useState(false);
 
-  const inputStyle = [styles.input, { borderColor: colors.inputBorder }];
-
   const updateForm = useCallback((updates: Partial<CreateEventForm>) => {
     setForm((prev) => (prev ? { ...prev, ...updates } : null));
   }, []);
@@ -95,7 +109,7 @@ export default function EditEventScreen() {
   useEffect(() => {
     if (!id || !user) return;
     if (id === '__demo__') {
-      setError("Demo events can't be edited.");
+      setError(Copy.event.demoCannotEdit);
       setLoading(false);
       return;
     }
@@ -106,7 +120,7 @@ export default function EditEventScreen() {
         .eq('id', id)
         .single();
       if (eventError || !eventData) {
-        setError('Event not found');
+        setError(Copy.event.notFound);
         setLoading(false);
         return;
       }
@@ -116,7 +130,7 @@ export default function EditEventScreen() {
       const coHostIds = (coHosts ?? []).map((c: { user_id: string }) => c.user_id);
       const isCoHost = coHostIds.includes(user.id);
       if (!isHost && !isCoHost) {
-        setError('Only the host or co-hosts can edit this event.');
+        setError(Copy.event.onlyHostCanEdit);
         setLoading(false);
         return;
       }
@@ -158,8 +172,34 @@ export default function EditEventScreen() {
     if (!form || !id || !user) return;
     setSaving(true);
     setError(null);
+
+    // Validate required fields
+    if (!form.title.trim()) {
+      setError('Please enter a title for your event.');
+      setSaving(false);
+      return;
+    }
+    const now = new Date();
+    const bellDate = new Date(form.bellTime);
+    const startDate = new Date(form.startTime);
+    if (isNaN(bellDate.getTime()) || isNaN(startDate.getTime())) {
+      setError('Please set valid start and bell times.');
+      setSaving(false);
+      return;
+    }
+    if (bellDate <= now) {
+      setError('Bell time must be in the future.');
+      setSaving(false);
+      return;
+    }
+    if (bellDate < startDate) {
+      setError('Bell time cannot be before the start time.');
+      setSaving(false);
+      return;
+    }
+
     try {
-      await (supabase as any)
+      await supabase
         .from('events')
         .update({
           title: form.title,
@@ -182,17 +222,17 @@ export default function EditEventScreen() {
         })
         .eq('id', id);
 
-      await (supabase as any).from('menu_sections').delete().eq('event_id', id);
+      await supabase.from('menu_sections').delete().eq('event_id', id);
       for (let i = 0; i < form.menuSections.length; i++) {
         const sec = form.menuSections[i];
-        const { data: sectionData } = await (supabase as any)
+        const { data: sectionData } = await supabase
           .from('menu_sections')
           .insert({ event_id: id, title: sec.title, sort_order: i })
           .select('id')
           .single();
         if (sectionData) {
           for (let j = 0; j < sec.items.length; j++) {
-            await (supabase as any).from('menu_items').insert({
+            await supabase.from('menu_items').insert({
               event_id: id,
               section_id: sectionData.id,
               name: sec.items[j].name,
@@ -204,10 +244,10 @@ export default function EditEventScreen() {
         }
       }
 
-      await (supabase as any).from('bring_items').delete().eq('event_id', id);
+      await supabase.from('bring_items').delete().eq('event_id', id);
       for (let i = 0; i < form.bringItems.length; i++) {
         const item = form.bringItems[i];
-        await (supabase as any).from('bring_items').insert({
+        await supabase.from('bring_items').insert({
           event_id: id,
           name: item.name,
           quantity: item.quantity || '1',
@@ -220,10 +260,10 @@ export default function EditEventScreen() {
         });
       }
 
-      await (supabase as any).from('schedule_blocks').delete().eq('event_id', id);
+      await supabase.from('schedule_blocks').delete().eq('event_id', id);
       for (let i = 0; i < form.scheduleBlocks.length; i++) {
         const block = form.scheduleBlocks[i];
-        await (supabase as any).from('schedule_blocks').insert({
+        await supabase.from('schedule_blocks').insert({
           event_id: id,
           title: block.title,
           time: block.time || null,
@@ -233,34 +273,43 @@ export default function EditEventScreen() {
       }
 
       await rescheduleNotificationsForEvent(id, form.bellTime, true);
+      trackEventEdited(id);
+      queryClient.invalidateQueries({ queryKey: ['event', id] });
+      queryClient.invalidateQueries({ queryKey: ['events'] });
       router.replace(`/event/${id}`);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Something went wrong');
+      setError(e instanceof Error ? e.message : Copy.validation.genericError);
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading || !form) return <Text style={styles.centered}>{loading ? 'Loading...' : error ?? 'Not found'}</Text>;
+  if (loading) {
+    return (
+      <View style={styles.skeletonWrap}>
+        <SkeletonCardList count={2} />
+      </View>
+    );
+  }
+  if (!form) return <Text style={[styles.centered, { color: colors.textSecondary }]}>{error ?? 'Not found'}</Text>;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.stepTitle}>{STEPS[step]}</Text>
+    <KeyboardAwareScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.stepTitle} accessibilityRole="header">{STEPS[step]}</Text>
 
       {step === 0 && (
         <>
-          <Text style={styles.label}>Title</Text>
-          <TextInput style={inputStyle} value={form.title} onChangeText={(t: string) => updateForm({ title: t })} placeholder="Event title" placeholderTextColor="#888" />
-          <Text style={styles.label}>Start time</Text>
-          <TextInput style={inputStyle} value={form.startTime} onChangeText={(t: string) => updateForm({ startTime: t })} placeholder="YYYY-MM-DDTHH:mm" placeholderTextColor="#888" />
-          <Text style={styles.label}>Bell time</Text>
-          <TextInput style={inputStyle} value={form.bellTime} onChangeText={(t: string) => updateForm({ bellTime: t })} placeholder="YYYY-MM-DDTHH:mm" placeholderTextColor="#888" />
+          <FloatingLabelInput label="Title" value={form.title} onChangeText={(t: string) => updateForm({ title: t })} onClear={() => updateForm({ title: '' })} returnKeyType="next" autoCapitalize="sentences" style={{ marginBottom: spacing.lg }} />
+          <FloatingLabelInput label="Start time" value={form.startTime} onChangeText={(t: string) => updateForm({ startTime: t })} onClear={() => updateForm({ startTime: '' })} returnKeyType="next" style={{ marginBottom: spacing.lg }} />
+          <FloatingLabelInput label="Bell time" value={form.bellTime} onChangeText={(t: string) => updateForm({ bellTime: t })} onClear={() => updateForm({ bellTime: '' })} returnKeyType="next" style={{ marginBottom: spacing.lg }} />
           <Text style={styles.label}>Bell sound</Text>
           <View style={styles.bellSoundRow}>
             {(['triangle', 'chime', 'gong'] as const).map((sound) => (
               <Pressable
                 key={sound}
-                style={[styles.bellSoundBtn, form.bellSound === sound && { backgroundColor: colors.primaryButton, borderColor: colors.primaryButton }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Select ${sound} bell sound`}
+                style={[styles.bellSoundBtn, { borderColor: form.bellSound === sound ? colors.primaryButton : colors.border }, form.bellSound === sound && { backgroundColor: colors.primaryButton }]}
                 onPress={() => updateForm({ bellSound: sound })}
               >
                 <Text style={[styles.bellSoundBtnText, form.bellSound === sound && { color: colors.primaryButtonText }]}>
@@ -269,35 +318,31 @@ export default function EditEventScreen() {
               </Pressable>
             ))}
           </View>
-          <Text style={styles.label}>Capacity (optional max guests, leave empty for no limit)</Text>
-          <TextInput
-            style={inputStyle}
+          <FloatingLabelInput
+            label="Capacity (optional)"
             value={form.capacity != null ? String(form.capacity) : ''}
             onChangeText={(t: string) => updateForm({ capacity: t === '' ? null : parseInt(t, 10) || null })}
-            placeholder="e.g. 12"
-            placeholderTextColor="#888"
+            onClear={() => updateForm({ capacity: null })}
             keyboardType="number-pad"
+            returnKeyType="next"
+            style={{ marginBottom: spacing.lg }}
           />
           <View style={styles.toggleRow}>
             <Text style={styles.toggleLabel}>List in Discover (public event)</Text>
-            <Switch value={form.isPublic ?? false} onValueChange={(v) => updateForm({ isPublic: v })} trackColor={{ false: colors.inputBorder, true: colors.primaryButton }} thumbColor="#fff" />
+            <Switch value={form.isPublic ?? false} onValueChange={(v) => updateForm({ isPublic: v })} trackColor={{ false: colors.inputBorder, true: colors.primaryButton }} thumbColor={colors.primaryButtonText} />
           </View>
         </>
       )}
 
       {step === 1 && (
         <>
-          <Text style={styles.label}>Address line 1</Text>
-          <TextInput style={inputStyle} value={form.addressLine1} onChangeText={(t: string) => updateForm({ addressLine1: t })} placeholder="Street" placeholderTextColor="#888" />
-          <Text style={styles.label}>Unit / Apt</Text>
-          <TextInput style={inputStyle} value={form.addressLine2} onChangeText={(t: string) => updateForm({ addressLine2: t })} placeholder="Optional" placeholderTextColor="#888" />
-          <Text style={styles.label}>City, State, Postal code, Country</Text>
-          <TextInput style={inputStyle} value={form.city} onChangeText={(t: string) => updateForm({ city: t })} placeholder="City" placeholderTextColor="#888" />
-          <TextInput style={inputStyle} value={form.state} onChangeText={(t: string) => updateForm({ state: t })} placeholder="State" placeholderTextColor="#888" />
-          <TextInput style={inputStyle} value={form.postalCode} onChangeText={(t: string) => updateForm({ postalCode: t })} placeholder="Postal code" placeholderTextColor="#888" />
-          <TextInput style={inputStyle} value={form.country} onChangeText={(t: string) => updateForm({ country: t })} placeholder="Country" placeholderTextColor="#888" />
-          <Text style={styles.label}>Location notes (parking, gate code)</Text>
-          <TextInput style={[inputStyle, styles.textArea]} value={form.locationNotes} onChangeText={(t: string) => updateForm({ locationNotes: t })} placeholder="Optional" placeholderTextColor="#888" multiline />
+          <FloatingLabelInput label="Address line 1" value={form.addressLine1} onChangeText={(t: string) => updateForm({ addressLine1: t })} onClear={() => updateForm({ addressLine1: '' })} returnKeyType="next" autoComplete="street-address" autoCapitalize="words" style={{ marginBottom: spacing.lg }} />
+          <FloatingLabelInput label="Unit / Apt" value={form.addressLine2} onChangeText={(t: string) => updateForm({ addressLine2: t })} onClear={() => updateForm({ addressLine2: '' })} returnKeyType="next" autoCapitalize="words" style={{ marginBottom: spacing.lg }} />
+          <FloatingLabelInput label="City" value={form.city} onChangeText={(t: string) => updateForm({ city: t })} onClear={() => updateForm({ city: '' })} returnKeyType="next" autoCapitalize="words" style={{ marginBottom: spacing.lg }} />
+          <FloatingLabelInput label="State" value={form.state} onChangeText={(t: string) => updateForm({ state: t })} onClear={() => updateForm({ state: '' })} returnKeyType="next" autoCapitalize="characters" style={{ marginBottom: spacing.lg }} />
+          <FloatingLabelInput label="Postal code" value={form.postalCode} onChangeText={(t: string) => updateForm({ postalCode: t })} onClear={() => updateForm({ postalCode: '' })} returnKeyType="next" autoComplete="postal-code" style={{ marginBottom: spacing.lg }} />
+          <FloatingLabelInput label="Country" value={form.country} onChangeText={(t: string) => updateForm({ country: t })} onClear={() => updateForm({ country: '' })} returnKeyType="next" autoCapitalize="words" style={{ marginBottom: spacing.lg }} />
+          <FloatingLabelInput label="Location notes (parking, gate code)" value={form.locationNotes} onChangeText={(t: string) => updateForm({ locationNotes: t })} onClear={() => updateForm({ locationNotes: '' })} multiline returnKeyType="done" style={{ marginBottom: spacing.lg, minHeight: 80 }} />
         </>
       )}
 
@@ -305,22 +350,27 @@ export default function EditEventScreen() {
         <>
           {form.menuSections.map((sec, si) => (
             <View key={sec.id} style={styles.section}>
-              <Text style={styles.label}>Section title</Text>
-              <TextInput
-                style={inputStyle}
+              <FloatingLabelInput
+                label="Section title"
                 value={sec.title}
                 onChangeText={(t: string) => {
                   const next = [...form.menuSections];
                   next[si] = { ...next[si], title: t };
                   updateForm({ menuSections: next });
                 }}
-                placeholder="e.g. Main"
-                placeholderTextColor="#888"
+                onClear={() => {
+                  const next = [...form.menuSections];
+                  next[si] = { ...next[si], title: '' };
+                  updateForm({ menuSections: next });
+                }}
+                returnKeyType="next"
+                autoCapitalize="words"
+                style={{ marginBottom: spacing.lg }}
               />
               {sec.items.map((item, ii) => (
-                <TextInput
+                <FloatingLabelInput
                   key={item.id}
-                  style={inputStyle}
+                  label={Copy.placeholder.menuItemName}
                   value={item.name}
                   onChangeText={(t: string) => {
                     const next = [...form.menuSections];
@@ -328,11 +378,20 @@ export default function EditEventScreen() {
                     next[si].items[ii] = { ...next[si].items[ii], name: t };
                     updateForm({ menuSections: next });
                   }}
-                  placeholder="Item name"
-                  placeholderTextColor="#888"
+                  onClear={() => {
+                    const next = [...form.menuSections];
+                    next[si].items = [...next[si].items];
+                    next[si].items[ii] = { ...next[si].items[ii], name: '' };
+                    updateForm({ menuSections: next });
+                  }}
+                  returnKeyType="done"
+                  autoCapitalize="sentences"
+                  style={{ marginBottom: spacing.lg }}
                 />
               ))}
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Add menu item"
                 onPress={() => {
                   const next = [...form.menuSections];
                   next[si] = { ...next[si], items: [...next[si].items, { id: generateId(), name: '', notes: '', dietaryTags: [] }] };
@@ -343,7 +402,7 @@ export default function EditEventScreen() {
               </Pressable>
             </View>
           ))}
-          <Pressable onPress={() => updateForm({ menuSections: [...form.menuSections, { id: generateId(), title: 'New section', items: [] }] })}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Add menu section" onPress={() => updateForm({ menuSections: [...form.menuSections, { id: generateId(), title: 'New section', items: [] }] })}>
             <Text style={[styles.link, { color: colors.tint }]}>+ Add section</Text>
           </Pressable>
         </>
@@ -353,11 +412,13 @@ export default function EditEventScreen() {
         <>
           {form.bringItems.map((item, ii) => (
             <View key={item.id} style={styles.bringRow}>
-              <TextInput style={[inputStyle, { flex: 1 }]} value={item.name} onChangeText={(t: string) => { const next = [...form.bringItems]; next[ii] = { ...next[ii], name: t }; updateForm({ bringItems: next }); }} placeholder="Item" placeholderTextColor="#888" />
-              <TextInput style={[inputStyle, { width: 80 }]} value={item.quantity} onChangeText={(t: string) => { const next = [...form.bringItems]; next[ii] = { ...next[ii], quantity: t }; updateForm({ bringItems: next }); }} placeholder="Qty" placeholderTextColor="#888" />
+              <FloatingLabelInput label={Copy.placeholder.itemName} value={item.name} onChangeText={(t: string) => { const next = [...form.bringItems]; next[ii] = { ...next[ii], name: t }; updateForm({ bringItems: next }); }} onClear={() => { const next = [...form.bringItems]; next[ii] = { ...next[ii], name: '' }; updateForm({ bringItems: next }); }} returnKeyType="next" autoCapitalize="sentences" style={{ flex: 1, marginBottom: spacing.lg }} />
+              <FloatingLabelInput label={Copy.placeholder.quantity} value={item.quantity} onChangeText={(t: string) => { const next = [...form.bringItems]; next[ii] = { ...next[ii], quantity: t }; updateForm({ bringItems: next }); }} onClear={() => { const next = [...form.bringItems]; next[ii] = { ...next[ii], quantity: '' }; updateForm({ bringItems: next }); }} returnKeyType="done" style={{ width: 80, marginBottom: spacing.lg }} />
             </View>
           ))}
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add bring item"
             onPress={() =>
               updateForm({
                 bringItems: [...form.bringItems, { id: generateId(), name: '', quantity: '1', category: 'other', isRequired: false, isClaimable: true, notes: '' }],
@@ -373,11 +434,11 @@ export default function EditEventScreen() {
         <>
           {form.scheduleBlocks.map((block, i) => (
             <View key={block.id} style={styles.row}>
-              <TextInput style={inputStyle} value={block.title} onChangeText={(t: string) => { const next = [...form.scheduleBlocks]; next[i] = { ...next[i], title: t }; updateForm({ scheduleBlocks: next }); }} placeholder="Title" placeholderTextColor="#888" />
-              <TextInput style={inputStyle} value={block.time} onChangeText={(t: string) => { const next = [...form.scheduleBlocks]; next[i] = { ...next[i], time: t }; updateForm({ scheduleBlocks: next }); }} placeholder="Time (optional)" placeholderTextColor="#888" />
+              <FloatingLabelInput label={Copy.placeholder.scheduleTitle} value={block.title} onChangeText={(t: string) => { const next = [...form.scheduleBlocks]; next[i] = { ...next[i], title: t }; updateForm({ scheduleBlocks: next }); }} onClear={() => { const next = [...form.scheduleBlocks]; next[i] = { ...next[i], title: '' }; updateForm({ scheduleBlocks: next }); }} returnKeyType="next" autoCapitalize="sentences" style={{ marginBottom: spacing.lg }} />
+              <FloatingLabelInput label={Copy.placeholder.scheduleTime} value={block.time} onChangeText={(t: string) => { const next = [...form.scheduleBlocks]; next[i] = { ...next[i], time: t }; updateForm({ scheduleBlocks: next }); }} onClear={() => { const next = [...form.scheduleBlocks]; next[i] = { ...next[i], time: '' }; updateForm({ scheduleBlocks: next }); }} returnKeyType="done" style={{ marginBottom: spacing.lg }} />
             </View>
           ))}
-          <Pressable onPress={() => updateForm({ scheduleBlocks: [...form.scheduleBlocks, { id: generateId(), title: '', time: '', notes: '' }] })}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Add schedule block" onPress={() => updateForm({ scheduleBlocks: [...form.scheduleBlocks, { id: generateId(), title: '', time: '', notes: '' }] })}>
             <Text style={[styles.link, { color: colors.tint }]}>+ Add schedule block</Text>
           </Pressable>
         </>
@@ -390,31 +451,37 @@ export default function EditEventScreen() {
             <View key={c.id} style={styles.coHostRow}>
               <Text style={styles.coHostText}>{c.email ?? c.user_id}</Text>
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Remove co-host ${c.email ?? c.user_id}`}
                 onPress={async () => {
                   await supabase.from('event_co_hosts').delete().eq('id', c.id);
                   setCoHosts((prev) => prev.filter((x) => x.id !== c.id));
                 }}
               >
-                <Text style={styles.removeText}>Remove</Text>
+                <Text style={[styles.removeText, { color: colors.error }]}>Remove</Text>
               </Pressable>
             </View>
           ))}
           <View style={styles.addRow}>
-            <TextInput
-              style={[inputStyle, { flex: 1 }]}
+            <FloatingLabelInput
+              label={Copy.placeholder.coHostEmail}
               value={coHostEmail}
               onChangeText={setCoHostEmail}
-              placeholder="Co-host email"
-              placeholderTextColor="#888"
+              onClear={() => setCoHostEmail('')}
               keyboardType="email-address"
               autoCapitalize="none"
+              returnKeyType="done"
+              autoComplete="email"
+              style={{ flex: 1 }}
             />
-            <Pressable
+            <AnimatedPressable
+              accessibilityRole="button"
+              accessibilityLabel="Add co-host"
               style={[styles.addBtn, { backgroundColor: colors.primaryButton }]}
               disabled={addingCoHost || !coHostEmail.trim()}
               onPress={async () => {
                 setAddingCoHost(true);
-                const { data: userId, error: rpcErr } = await (supabase as any).rpc('get_user_id_by_email', { p_email: coHostEmail.trim() });
+                const { data: userId, error: rpcErr } = await supabase.rpc('get_user_id_by_email', { p_email: coHostEmail.trim() });
                 if (rpcErr || !userId) {
                   setError('No account found for that email.');
                   setAddingCoHost(false);
@@ -432,13 +499,15 @@ export default function EditEventScreen() {
               }}
             >
               <Text style={[styles.addBtnText, { color: colors.primaryButtonText }]}>Add</Text>
-            </Pressable>
+            </AnimatedPressable>
           </View>
           <Text style={styles.label}>Prep checklist (private to host/co-hosts)</Text>
           {prepTasks.map((t) => (
             <View key={t.id} style={styles.prepRow}>
               <Text style={t.completed_at ? styles.prepTitleDone : styles.prepTitle}>{t.title}</Text>
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Mark ${t.title} as ${t.completed_at ? 'not done' : 'done'}`}
                 onPress={async () => {
                   await supabase.from('event_prep_tasks').update({ completed_at: t.completed_at ? null : new Date().toISOString() }).eq('id', t.id);
                   setPrepTasks((prev) => prev.map((p) => (p.id === t.id ? { ...p, completed_at: p.completed_at ? null : new Date().toISOString() } : p)));
@@ -446,20 +515,28 @@ export default function EditEventScreen() {
               >
                 <Text style={[styles.smallBtnText, { color: colors.tint }]}>{t.completed_at ? 'Undo' : 'Done'}</Text>
               </Pressable>
-              <Pressable onPress={async () => { await supabase.from('event_prep_tasks').delete().eq('id', t.id); setPrepTasks((prev) => prev.filter((x) => x.id !== t.id)); }}>
-                <Text style={styles.removeText}>Remove</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Remove prep task ${t.title}`}
+                onPress={async () => { await supabase.from('event_prep_tasks').delete().eq('id', t.id); setPrepTasks((prev) => prev.filter((x) => x.id !== t.id)); }}
+              >
+                <Text style={[styles.removeText, { color: colors.error }]}>Remove</Text>
               </Pressable>
             </View>
           ))}
           <View style={styles.addRow}>
-            <TextInput
-              style={[inputStyle, { flex: 1 }]}
+            <FloatingLabelInput
+              label={Copy.placeholder.prepTask}
               value={newPrepTitle}
               onChangeText={setNewPrepTitle}
-              placeholder="e.g. Preheat oven"
-              placeholderTextColor="#888"
+              onClear={() => setNewPrepTitle('')}
+              returnKeyType="done"
+              autoCapitalize="sentences"
+              style={{ flex: 1 }}
             />
-            <Pressable
+            <AnimatedPressable
+              accessibilityRole="button"
+              accessibilityLabel="Add prep task"
               style={[styles.addBtn, { backgroundColor: colors.primaryButton }]}
               disabled={addingPrep || !newPrepTitle.trim()}
               onPress={async () => {
@@ -472,7 +549,7 @@ export default function EditEventScreen() {
               }}
             >
               <Text style={[styles.addBtnText, { color: colors.primaryButtonText }]}>Add</Text>
-            </Pressable>
+            </AnimatedPressable>
           </View>
         </>
       )}
@@ -486,63 +563,62 @@ export default function EditEventScreen() {
         </View>
       )}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
 
       <View style={styles.footer}>
         {step > 0 && (
-          <Pressable style={[styles.btnSecondary, { borderWidth: 1, borderColor: colors.inputBorder }]} onPress={() => setStep(step - 1)}>
+          <AnimatedPressable accessibilityRole="button" accessibilityLabel="Previous step" style={[styles.btnSecondary, { borderWidth: 1, borderColor: colors.inputBorder }]} onPress={() => setStep(step - 1)}>
             <Text style={[styles.btnSecondaryText, { color: colors.text }]}>Back</Text>
-          </Pressable>
+          </AnimatedPressable>
         )}
         {step < TOTAL_STEPS - 1 ? (
-          <Pressable style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }]} onPress={() => setStep(step + 1)}>
+          <AnimatedPressable accessibilityRole="button" accessibilityLabel="Next step" style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }]} onPress={() => setStep(step + 1)}>
             <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>Next</Text>
-          </Pressable>
+          </AnimatedPressable>
         ) : (
-          <Pressable style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }, saving && styles.btnDisabled]} onPress={handleSubmit} disabled={saving}>
-            <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>{saving ? 'Saving...' : 'Save changes'}</Text>
-          </Pressable>
+          <AnimatedPressable accessibilityRole="button" accessibilityLabel="Save event changes" style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }, saving && styles.btnDisabled]} onPress={handleSubmit} disabled={saving}>
+            <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>{saving ? Copy.common.saving : Copy.event.saveChanges}</Text>
+          </AnimatedPressable>
         )}
       </View>
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
-  centered: { flex: 1, textAlign: 'center', marginTop: 40 },
-  stepTitle: { fontSize: 22, fontWeight: '600', marginBottom: 16 },
-  label: { fontSize: 14, fontWeight: '500', marginBottom: 6 },
-  bellSoundRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  bellSoundBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#ccc' },
-  bellSoundBtnText: { fontSize: 14, fontWeight: '500' },
-  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 16 },
-  textArea: { minHeight: 80 },
-  section: { marginBottom: 16 },
-  row: { marginBottom: 8 },
-  bringRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  link: { fontSize: 16, marginTop: 8 },
-  summary: { marginBottom: 24 },
-  summaryTitle: { fontSize: 20, fontWeight: '600', marginBottom: 8 },
-  summaryText: { fontSize: 14, marginBottom: 4 },
-  error: { color: '#c00', marginBottom: 12 },
-  footer: { flexDirection: 'row', gap: 12, marginTop: 24 },
-  btnPrimary: { flex: 1, padding: 16, borderRadius: 8, alignItems: 'center' },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl + spacing.sm },
+  skeletonWrap: { flex: 1, padding: spacing.lg, paddingTop: spacing.xxl },
+  centered: { flex: 1, textAlign: 'center', marginTop: spacing.xxl },
+  stepTitle: { fontSize: typography.headline, fontWeight: '600', marginBottom: spacing.lg },
+  label: { fontSize: typography.meta, fontWeight: '500', marginBottom: spacing.xs + 2 },
+  bellSoundRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
+  bellSoundBtn: { paddingVertical: spacing.sm + 2, paddingHorizontal: spacing.lg, borderRadius: radius.input, borderWidth: 1 },
+  bellSoundBtnText: { fontSize: typography.meta, fontWeight: '500' },
+  section: { marginBottom: spacing.lg },
+  row: { marginBottom: spacing.sm },
+  bringRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  link: { fontSize: typography.body, marginTop: spacing.sm },
+  summary: { marginBottom: spacing.xl },
+  summaryTitle: { fontSize: typography.h3, fontWeight: '600', marginBottom: spacing.sm },
+  summaryText: { fontSize: typography.meta, marginBottom: spacing.xs },
+  error: { marginBottom: spacing.md },
+  footer: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.xl },
+  btnPrimary: { flex: 1, padding: spacing.lg, borderRadius: radius.input, alignItems: 'center' },
   btnPrimaryText: { fontWeight: '600' },
-  btnSecondary: { padding: 16, borderRadius: 8, alignItems: 'center' },
+  btnSecondary: { padding: spacing.lg, borderRadius: radius.input, alignItems: 'center' },
   btnSecondaryText: { fontWeight: '600' },
   btnDisabled: { opacity: 0.6 },
-  coHostRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  coHostText: { fontSize: 16, flex: 1 },
-  removeText: { fontSize: 14, color: '#c00', fontWeight: '500' },
-  addRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
-  addBtn: { paddingVertical: 12, paddingHorizontal: 20, borderRadius: 8 },
+  coHostRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
+  coHostText: { fontSize: typography.body, flex: 1 },
+  removeText: { fontSize: typography.meta, fontWeight: '500' },
+  addRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.lg },
+  addBtn: { paddingVertical: spacing.md, paddingHorizontal: spacing.lg + spacing.xs, borderRadius: radius.input },
   addBtnText: { fontWeight: '600' },
-  prepRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  prepTitle: { fontSize: 16, flex: 1 },
-  prepTitleDone: { fontSize: 16, flex: 1, textDecorationLine: 'line-through', opacity: 0.7 },
-  smallBtnText: { fontSize: 14, fontWeight: '500' },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  toggleLabel: { fontSize: 14, flex: 1 },
+  prepRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  prepTitle: { fontSize: typography.body, flex: 1 },
+  prepTitleDone: { fontSize: typography.body, flex: 1, textDecorationLine: 'line-through', opacity: 0.7 },
+  smallBtnText: { fontSize: typography.meta, fontWeight: '500' },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
+  toggleLabel: { fontSize: typography.meta, flex: 1 },
 });

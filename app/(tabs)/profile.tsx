@@ -1,23 +1,33 @@
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AppShell } from '@/components/AppShell';
 import { Avatar } from '@/components/Avatar';
 import { GhostButton, PrimaryButton } from '@/components/Buttons';
 import { Card, CardBody, CardHeader } from '@/components/Card';
 import { Divider } from '@/components/Divider';
-import { PageHeader } from '@/components/PageHeader';
+import { FloatingLabelInput } from '@/components/FloatingLabelInput';
+import { GradientHeader } from '@/components/GradientHeader';
+import { OptimizedImage } from '@/components/OptimizedImage';
 import { SettingsRow } from '@/components/SettingsRow';
+import { SkeletonLoader } from '@/components/SkeletonLoader';
 import { StatPill } from '@/components/StatPill';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { spacing, typography } from '@/constants/Theme';
+import { Copy } from '@/constants/Copy';
+import { fontWeight, lineHeight, radius, spacing, typography } from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
+import { useProfile } from '@/hooks/useProfile';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { trackProfileUpdated, trackSignOut } from '@/lib/analytics';
 import { normalizePhoneForLookup } from '@/lib/invite';
 import { supabase } from '@/lib/supabase';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, TextInput } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch } from 'react-native';
+import Animated, { FadeInDown, runOnJS, useAnimatedReaction, useSharedValue, withTiming } from 'react-native-reanimated';
 
 function initialsFromEmail(email: string | undefined): string {
   if (!email) return '?';
@@ -32,25 +42,55 @@ function displayName(email: string | undefined): string {
   return part.charAt(0).toUpperCase() + part.slice(1);
 }
 
+/** Animated count-up stat using Reanimated shared values. */
+function AnimatedStat({ value, style }: { value: number; style?: any }) {
+  const reduceMotion = useReducedMotion();
+  const sv = useSharedValue(0);
+  const [display, setDisplay] = useState(0);
+
+  useEffect(() => {
+    if (reduceMotion || value === 0) {
+      sv.value = value;
+      setDisplay(value);
+      return;
+    }
+    sv.value = 0;
+    sv.value = withTiming(value, { duration: 800 });
+  }, [value, reduceMotion]);
+
+  useAnimatedReaction(
+    () => Math.round(sv.value),
+    (cur, prev) => {
+      if (cur !== prev) runOnJS(setDisplay)(cur);
+    }
+  );
+
+  return <Text style={style}>{display}</Text>;
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, isSignedIn } = useAuth();
   const toast = useToast();
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
+  const reduceMotion = useReducedMotion();
 
   const [reminderMins, setReminderMins] = useState(30);
   const [bellSoundOn, setBellSoundOn] = useState(true);
   const [vibrateOnBell, setVibrateOnBell] = useState(true);
   const [showRsvpToOthers, setShowRsvpToOthers] = useState(true);
 
-  // Stats
-  const [hostedCount, setHostedCount] = useState(0);
-  const [attendedCount, setAttendedCount] = useState(0);
-  const [claimedCount, setClaimedCount] = useState(0);
+  // Stats (via React Query)
+  const { data: profileData, isLoading: statsLoading, error: profileError } = useProfile(user?.id);
+  const statsError = profileError?.message ?? null;
+  const hostedCount = profileData?.stats.hosted ?? 0;
+  const attendedCount = profileData?.stats.attended ?? 0;
+  const claimedCount = profileData?.stats.claimed ?? 0;
 
   const [profilePhone, setProfilePhone] = useState('');
   const [profilePhoneSaving, setProfilePhoneSaving] = useState(false);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -61,91 +101,74 @@ export default function ProfileScreen() {
     fetchProfile();
   }, [user?.id]);
 
-  useEffect(() => {
-    if (!user) return;
-    const fetchStats = async () => {
-      try {
-        const { count: hosted } = await supabase
-          .from('events')
-          .select('id', { count: 'exact', head: true })
-          .eq('host_user_id', user.id)
-          .eq('is_cancelled', false);
-        setHostedCount(hosted ?? 0);
 
-        const { data: guestRows } = await supabase
-          .from('event_guests')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('rsvp_status', 'going');
-        const guestIds = (guestRows ?? []).map((r: { id: string }) => r.id);
-        const { data: eventIdsData } = await supabase
-          .from('event_guests')
-          .select('event_id')
-          .eq('user_id', user.id)
-          .eq('rsvp_status', 'going');
-        const goingEventIds = [...new Set((eventIdsData ?? []).map((r: { event_id: string }) => r.event_id))];
-        const attended =
-          goingEventIds.length === 0
-            ? 0
-            : (
-                await supabase
-                  .from('events')
-                  .select('id', { count: 'exact', head: true })
-                  .in('id', goingEventIds)
-                  .eq('is_cancelled', false)
-              ).count ?? 0;
-        setAttendedCount(attended);
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setAvatarUri(result.assets[0].uri);
+      // TODO: Upload to Supabase Storage when bucket is configured
+      // const { data } = await supabase.storage.from('avatars').upload(...)
+      // await supabase.from('profiles').update({ avatar_url: data.path })
+    }
+  };
 
-        if (guestIds.length === 0) {
-          setClaimedCount(0);
-          return;
-        }
-        const { count: brought } = await supabase
-          .from('bring_items')
-          .select('id', { count: 'exact', head: true })
-          .in('status', ['claimed', 'provided'])
-          .in('claimed_by_guest_id', guestIds);
-        setClaimedCount(brought ?? 0);
-      } catch {
-        setHostedCount(0);
-        setAttendedCount(0);
-        setClaimedCount(0);
-      }
-    };
-    fetchStats();
-  }, [user?.id]);
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    toast.show('Signed out. Come back hungry.');
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            trackSignOut();
+            await supabase.auth.signOut();
+            toast.show(Copy.toast.signedOut);
+          },
+        },
+      ]
+    );
   };
 
   const handleSavePhone = async () => {
     if (!user) return;
     const normalized = normalizePhoneForLookup(profilePhone);
     if (normalized.length > 0 && normalized.length < 10) {
-      toast.show('Enter a valid phone number (at least 10 digits).');
+      toast.show(Copy.toast.invalidPhone);
       return;
     }
     setProfilePhoneSaving(true);
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from('profiles')
       .update({ phone: normalized || null, updated_at: new Date().toISOString() })
       .eq('id', user.id);
     setProfilePhoneSaving(false);
-    if (error) toast.show('Could not save phone number.');
-    else toast.show(normalized ? 'Phone number saved. Hosts can invite you by this number.' : 'Phone number cleared.');
+    if (error) toast.show(Copy.toast.phoneSaveFailed);
+    else {
+      trackProfileUpdated('phone');
+      toast.show(normalized ? Copy.toast.phoneSaved : Copy.toast.phoneCleared);
+    }
   };
 
 
   const subtitle = isSignedIn
     ? `${user?.email ?? 'Signed in'}`
-    : 'Sign in to create and manage events';
+    : Copy.profile.signInPrompt;
 
   return (
     <AppShell>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <PageHeader title="Profile" subtitle={subtitle} />
+        <GradientHeader
+          title={isSignedIn ? displayName(user?.email) : Copy.profile.title}
+          subtitle={subtitle}
+          height={180}
+        />
 
         {isSignedIn ? (
           <>
@@ -153,9 +176,23 @@ export default function ProfileScreen() {
             <Card style={styles.heroCard}>
               <CardBody>
                 <View style={styles.heroRow}>
-                  <Avatar initials={initialsFromEmail(user?.email)} size={72} />
+                  <Pressable onPress={pickImage} style={styles.avatarWrapper} accessibilityLabel="Change profile photo" accessibilityRole="button">
+                    {avatarUri ? (
+                      <OptimizedImage
+                        source={avatarUri}
+                        width={80}
+                        height={80}
+                        borderRadius={40}
+                      />
+                    ) : (
+                      <Avatar initials={initialsFromEmail(user?.email)} size={80} />
+                    )}
+                    <View style={[styles.cameraOverlay, { backgroundColor: colors.overlay, borderColor: colors.onOverlay }]}>
+                      <FontAwesome name="camera" size={12} color={colors.onOverlay} />
+                    </View>
+                  </Pressable>
                   <View style={styles.heroInfo}>
-                    <Text style={[styles.heroName, { color: colors.textPrimary }]}>
+                    <Text style={[styles.heroName, { color: colors.textPrimary }]} accessibilityRole="header">
                       {displayName(user?.email)}
                     </Text>
                     <Text style={[styles.heroEmail, { color: colors.textSecondary }]} numberOfLines={1}>
@@ -163,27 +200,56 @@ export default function ProfileScreen() {
                     </Text>
                   </View>
                 </View>
-                <View style={styles.statsRow}>
-                  <View style={styles.statItem}>
+                <Animated.View
+                  entering={reduceMotion ? undefined : FadeInDown.duration(400)}
+                  style={[styles.statsRow, { borderTopColor: colors.border }]}
+                >
+                  <Animated.View
+                    entering={reduceMotion ? undefined : FadeInDown.delay(100).duration(400)}
+                    style={styles.statItem}
+                  >
                     <FontAwesome name="bullhorn" size={14} color={colors.tint} style={styles.statIcon} />
-                    <Text style={[styles.statValue, { color: colors.textPrimary }]}>{hostedCount}</Text>
-                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Hosted</Text>
-                  </View>
+                    {statsLoading ? (
+                      <SkeletonLoader width={32} height={22} borderRadius={6} style={styles.statSkeleton} />
+                    ) : (
+                      <AnimatedStat value={hostedCount} style={[styles.statValue, { color: colors.textPrimary }]} />
+                    )}
+                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{Copy.profile.hosted}</Text>
+                  </Animated.View>
                   <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-                  <View style={styles.statItem}>
+                  <Animated.View
+                    entering={reduceMotion ? undefined : FadeInDown.delay(250).duration(400)}
+                    style={styles.statItem}
+                  >
                     <FontAwesome name="check-circle" size={14} color={colors.accentSage} style={styles.statIcon} />
-                    <Text style={[styles.statValue, { color: colors.textPrimary }]}>{attendedCount}</Text>
-                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Attended</Text>
-                  </View>
+                    {statsLoading ? (
+                      <SkeletonLoader width={32} height={22} borderRadius={6} style={styles.statSkeleton} />
+                    ) : (
+                      <AnimatedStat value={attendedCount} style={[styles.statValue, { color: colors.textPrimary }]} />
+                    )}
+                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{Copy.profile.attended}</Text>
+                  </Animated.View>
                   <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-                  <View style={styles.statItem}>
+                  <Animated.View
+                    entering={reduceMotion ? undefined : FadeInDown.delay(400).duration(400)}
+                    style={styles.statItem}
+                  >
                     <FontAwesome name="gift" size={14} color={colors.tint} style={styles.statIcon} />
-                    <Text style={[styles.statValue, { color: colors.textPrimary }]}>{claimedCount}</Text>
+                    {statsLoading ? (
+                      <SkeletonLoader width={32} height={22} borderRadius={6} style={styles.statSkeleton} />
+                    ) : (
+                      <AnimatedStat value={claimedCount} style={[styles.statValue, { color: colors.textPrimary }]} />
+                    )}
                     <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Items brought</Text>
-                  </View>
-                </View>
+                  </Animated.View>
+                </Animated.View>
+                {statsError ? (
+                  <Text style={[styles.statsErrorText, { color: colors.textSecondary }]}>
+                    {statsError}
+                  </Text>
+                ) : null}
                 {(hostedCount >= 1 || claimedCount >= 10 || attendedCount >= 3) && (
-                  <View style={styles.badgesRow}>
+                  <View style={[styles.badgesRow, { borderTopColor: colors.border }]}>
                     <Text style={[styles.badgesLabel, { color: colors.textSecondary }]}>Badges</Text>
                     <View style={styles.badgeChips}>
                       {hostedCount >= 1 && (
@@ -209,11 +275,11 @@ export default function ProfileScreen() {
 
             {/* Notifications */}
             <Card style={styles.settingsCard}>
-              <CardHeader title="Notifications" />
+              <CardHeader title={Copy.profile.notifications} />
               <CardBody style={styles.cardBodyNoTopPadding}>
                 <SettingsRow
-                  title="Default reminders"
-                  subtitle="Give people a gentle nudge before you ring."
+                  title={Copy.profile.defaultReminders}
+                  subtitle={Copy.profile.defaultRemindersDesc}
                   icon={<FontAwesome name="bell-o" size={16} color={colors.tint} />}
                   right={
                     <StatPill label={`${reminderMins}m`} />
@@ -221,104 +287,102 @@ export default function ProfileScreen() {
                 />
                 <Divider />
                 <SettingsRow
-                  title="Bell sound"
-                  subtitle="Plays the triangle ding when it's time."
+                  title={Copy.profile.bellSound}
+                  subtitle={Copy.profile.bellSoundDesc}
                   icon={<FontAwesome name="music" size={16} color={colors.tint} />}
-                  right={<Switch value={bellSoundOn} onValueChange={setBellSoundOn} trackColor={{ false: colors.border, true: colors.tint }} thumbColor="#fff" />}
+                  right={<Switch value={bellSoundOn} onValueChange={setBellSoundOn} trackColor={{ false: colors.border, true: colors.tint }} thumbColor={colors.primaryButtonText} accessibilityLabel="Bell sound" />}
                 />
                 <Divider />
                 <SettingsRow
-                  title="Vibrate on bell"
-                  subtitle="Feel it when the bell rings."
+                  title={Copy.profile.vibrateOnBell}
+                  subtitle={Copy.profile.vibrateOnBellDesc}
                   icon={<FontAwesome name="mobile" size={16} color={colors.tint} />}
-                  right={<Switch value={vibrateOnBell} onValueChange={setVibrateOnBell} trackColor={{ false: colors.border, true: colors.tint }} thumbColor="#fff" />}
+                  right={<Switch value={vibrateOnBell} onValueChange={setVibrateOnBell} trackColor={{ false: colors.border, true: colors.tint }} thumbColor={colors.primaryButtonText} accessibilityLabel="Vibrate on bell" />}
                 />
               </CardBody>
             </Card>
 
             {/* Defaults */}
             <Card style={styles.settingsCard}>
-              <CardHeader title="Defaults" />
+              <CardHeader title={Copy.profile.defaults} />
               <CardBody style={styles.cardBodyNoTopPadding}>
                 <SettingsRow
-                  title="Default event duration"
+                  title={Copy.profile.defaultDuration}
                   icon={<FontAwesome name="clock-o" size={16} color={colors.tint} />}
-                  right={<StatPill label="2 hours" />}
+                  right={<StatPill label={Copy.profile.twoHours} />}
                 />
                 <Divider />
                 <SettingsRow
-                  title="Bell follows start time"
-                  subtitle="Ring right when the event begins."
+                  title={Copy.profile.bellFollowsStart}
+                  subtitle={Copy.profile.bellFollowsStartDesc}
                   icon={<FontAwesome name="refresh" size={16} color={colors.tint} />}
                   right={<StatPill variant="sage" label="On" />}
                 />
                 <Divider />
                 <SettingsRow
-                  title="Default address"
-                  subtitle="Manage your saved locations."
+                  title={Copy.profile.defaultAddress}
+                  subtitle={Copy.profile.defaultAddressDesc}
                   icon={<FontAwesome name="map-marker" size={16} color={colors.tint} />}
                   right={<Text style={[styles.settingLink, { color: colors.tint }]}>Manage</Text>}
                 />
                 <Divider />
-                <Pressable onPress={() => router.push('/groups')}>
+                <AnimatedPressable onPress={() => router.push('/groups')}>
                   <SettingsRow
-                    title="Guest groups"
-                    subtitle="Reuse the same guest list for future events."
+                    title={Copy.profile.guestGroups}
+                    subtitle={Copy.profile.guestGroupsDesc}
                     icon={<FontAwesome name="users" size={16} color={colors.tint} />}
                     right={<Text style={[styles.settingLink, { color: colors.tint }]}>Manage</Text>}
                   />
-                </Pressable>
+                </AnimatedPressable>
               </CardBody>
             </Card>
 
             {/* Privacy */}
             <Card style={styles.settingsCard}>
-              <CardHeader title="Privacy" />
+              <CardHeader title={Copy.profile.privacy} />
               <CardBody style={styles.cardBodyNoTopPadding}>
                 <SettingsRow
-                  title="Show my RSVP to others"
-                  subtitle="Let other guests see if you're going."
+                  title={Copy.profile.showRsvp}
+                  subtitle={Copy.profile.showRsvpDesc}
                   icon={<FontAwesome name="eye" size={16} color={colors.tint} />}
-                  right={<Switch value={showRsvpToOthers} onValueChange={setShowRsvpToOthers} trackColor={{ false: colors.border, true: colors.tint }} thumbColor="#fff" />}
+                  right={<Switch value={showRsvpToOthers} onValueChange={setShowRsvpToOthers} trackColor={{ false: colors.border, true: colors.tint }} thumbColor={colors.primaryButtonText} accessibilityLabel="Show RSVP status to others" />}
                 />
               </CardBody>
             </Card>
 
             {/* Account */}
             <Card style={styles.settingsCard}>
-              <CardHeader title="Account" />
+              <CardHeader title={Copy.profile.account} />
               <CardBody style={styles.cardBodyNoTopPadding}>
-                <View style={styles.phoneRow}>
-                  <FontAwesome name="phone" size={16} color={colors.textSecondary} style={styles.phoneIcon} />
-                  <Text style={[styles.phoneLabel, { color: colors.textPrimary }]}>Phone number</Text>
-                </View>
                 <Text style={[styles.phoneSubtitle, { color: colors.textSecondary }]}>
-                  So hosts can add you from their contacts and send you invite push notifications.
+                  {Copy.profile.phoneNumberDesc}
                 </Text>
-                <TextInput
-                  style={[styles.phoneInput, { borderColor: colors.border, color: colors.textPrimary }]}
+                <FloatingLabelInput
+                  label={Copy.profile.phoneNumber}
                   value={profilePhone}
                   onChangeText={setProfilePhone}
-                  placeholder="+1 234 567 8900"
-                  placeholderTextColor="#888"
+                  onClear={() => setProfilePhone('')}
+                  returnKeyType="done"
+                  autoComplete="tel"
                   keyboardType="phone-pad"
                   onBlur={handleSavePhone}
                   editable={!profilePhoneSaving}
+                  style={{ marginBottom: spacing.xs }}
                 />
-                {profilePhoneSaving ? <Text style={[styles.phoneHint, { color: colors.textSecondary }]}>Saving...</Text> : null}
+                {profilePhoneSaving ? <Text style={[styles.phoneHint, { color: colors.textSecondary }]}>{Copy.common.saving}</Text> : null}
                 <Divider />
                 <SettingsRow
-                  title="Change email"
-                  subtitle="Update your email address."
+                  title={Copy.profile.changeEmail}
+                  subtitle={Copy.profile.changeEmailDesc}
                   icon={<FontAwesome name="envelope-o" size={16} color={colors.textSecondary} />}
-                  right={<StatPill label="Soon" />}
+                  right={<StatPill label={Copy.profile.soon} />}
                 />
                 <Divider />
                 <SettingsRow
-                  title="Change password"
-                  subtitle="Update your password."
+                  title={Copy.profile.changePassword}
+                  subtitle={Copy.profile.changePasswordDesc}
                   icon={<FontAwesome name="lock" size={16} color={colors.textSecondary} />}
-                  right={<StatPill label="Soon" />}
+                  right={<StatPill label={Copy.profile.soon} />}
                 />
                 <Divider />
                 <View style={styles.signOutWrap}>
@@ -327,7 +391,7 @@ export default function ProfileScreen() {
                     style={{ ...styles.signOutBtn, borderColor: colors.accentTomato }}
                     textStyle={{ color: colors.accentTomato }}
                   >
-                    Sign out
+                    {Copy.common.signOut}
                   </GhostButton>
                 </View>
               </CardBody>
@@ -339,10 +403,10 @@ export default function ProfileScreen() {
               <View style={styles.signInContent}>
                 <FontAwesome name="user-circle-o" size={48} color={colors.tint + '60'} />
                 <Text style={[styles.signInText, { color: colors.textSecondary }]}>
-                  Sign in to create and manage events, see your stats, and customize notifications.
+                  {Copy.profile.signInFullPrompt}
                 </Text>
                 <PrimaryButton onPress={() => router.push('/sign-in')}>
-                  Sign in
+                  {Copy.common.signIn}
                 </PrimaryButton>
               </View>
             </CardBody>
@@ -364,13 +428,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.lg,
   },
+  avatarWrapper: {
+    position: 'relative',
+    width: 80,
+    height: 80,
+  },
+  cameraOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+  },
   heroInfo: {
     flex: 1,
     minWidth: 0,
   },
   heroName: {
     fontSize: typography.h2,
-    fontWeight: '600',
+    fontWeight: fontWeight.semibold,
   },
   heroEmail: {
     fontSize: typography.caption,
@@ -383,7 +463,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     paddingTop: spacing.lg,
     borderTopWidth: 1,
-    borderTopColor: '#E8E1D8',
   },
   statItem: {
     alignItems: 'center',
@@ -394,11 +473,20 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: typography.h2,
-    fontWeight: '700',
+    fontWeight: fontWeight.bold,
   },
   statLabel: {
     fontSize: typography.small,
-    marginTop: 2,
+    marginTop: spacing.xs / 2,
+  },
+  statSkeleton: {
+    marginVertical: spacing.xs / 2,
+  },
+  statsErrorText: {
+    fontSize: typography.small,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+    fontStyle: 'italic',
   },
   statDivider: {
     width: 1,
@@ -409,7 +497,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     paddingTop: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(128,128,128,0.2)',
   },
   badgesLabel: {
     fontSize: typography.small,
@@ -421,14 +508,14 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   badgeChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
+    paddingVertical: spacing.xs + 2,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.button,
     borderWidth: 1,
   },
   badgeChipText: {
     fontSize: typography.small,
-    fontWeight: '600',
+    fontWeight: fontWeight.semibold,
   },
   settingsCard: {
     marginBottom: spacing.xl,
@@ -438,7 +525,7 @@ const styles = StyleSheet.create({
   },
   settingLink: {
     fontSize: typography.caption,
-    fontWeight: '600',
+    fontWeight: fontWeight.semibold,
   },
   signOutWrap: {
     marginTop: spacing.md,
@@ -459,32 +546,12 @@ const styles = StyleSheet.create({
   signInText: {
     fontSize: typography.body,
     textAlign: 'center',
-    lineHeight: 24,
-  },
-  phoneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  phoneIcon: {
-    marginRight: spacing.sm,
-  },
-  phoneLabel: {
-    fontSize: typography.body,
-    fontWeight: '500',
+    lineHeight: lineHeight.body,
   },
   phoneSubtitle: {
     fontSize: typography.small,
     marginBottom: spacing.sm,
-    lineHeight: 20,
-  },
-  phoneInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: typography.body,
-    marginBottom: spacing.xs,
+    lineHeight: lineHeight.small,
   },
   phoneHint: {
     fontSize: typography.small,

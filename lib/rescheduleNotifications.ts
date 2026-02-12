@@ -9,7 +9,7 @@ export async function rescheduleNotificationsForEvent(
   bellTimeIso: string,
   includeReminder2h: boolean = true
 ): Promise<void> {
-  await (supabase as any)
+  await supabase
     .from('notification_schedules')
     .delete()
     .eq('event_id', eventId)
@@ -26,5 +26,5 @@ export async function rescheduleNotificationsForEvent(
   if (includeReminder2h && reminder2h > new Date()) {
     rows.push({ event_id: eventId, scheduled_at: reminder2h.toISOString(), type: 'reminder_2h' });
   }
-  await (supabase as any).from('notification_schedules').insert(rows);
+  await supabase.from('notification_schedules').insert(rows);
 }

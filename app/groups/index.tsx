@@ -1,42 +1,37 @@
+import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { EmptyState } from '@/components/EmptyState';
+import { FloatingLabelInput } from '@/components/FloatingLabelInput';
+import { KeyboardAwareScrollView } from '@/components/KeyboardAwareScrollView';
+import { SkeletonCardList } from '@/components/SkeletonLoader';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { radius, spacing, typography } from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
-import { createGroup, fetchGroups, type GuestGroup } from '@/lib/groups';
+import { useCreateGroup, useGroups } from '@/hooks/useGroups';
+import { trackGroupCreated } from '@/lib/analytics';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet } from 'react-native';
 
 export default function GroupsScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
-  const [groups, setGroups] = useState<GuestGroup[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: groups = [], isLoading, error, refetch } = useGroups(user?.id);
+  const createGroupMutation = useCreateGroup();
   const [newName, setNewName] = useState('');
-  const [creating, setCreating] = useState(false);
-
-  const load = useCallback(async () => {
-    const list = await fetchGroups();
-    setGroups(list);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    load();
-  }, [user?.id, load]);
 
   const handleCreate = async () => {
-    if (!newName.trim()) return;
-    setCreating(true);
-    const id = await createGroup(newName.trim());
-    setCreating(false);
-    if (id) {
+    if (!newName.trim() || !user?.id) return;
+    try {
+      const created = await createGroupMutation.mutateAsync({ userId: user.id, name: newName.trim() });
+      trackGroupCreated(created.id);
       setNewName('');
-      load();
-      router.push(`/groups/${id}`);
+      router.push(`/groups/${created.id}`);
+    } catch {
+      // mutation error is surfaced via createGroupMutation.error
     }
   };
 
@@ -44,55 +39,73 @@ export default function GroupsScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.body}>Sign in to manage guest groups.</Text>
-        <Pressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push('/sign-in')}>
+        <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push('/sign-in')} accessibilityRole="button" accessibilityLabel="Sign in to manage groups">
           <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>Sign in</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
     );
   }
 
-  if (loading) return <Text style={styles.centered}>Loading...</Text>;
+  if (isLoading) {
+    return (
+      <View style={styles.skeletonWrap}>
+        <SkeletonCardList count={3} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.centered}>
+        <Text style={[styles.body, { color: colors.warn }]}>{error.message}</Text>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.label}>New group</Text>
-      <TextInput
-        style={[styles.input, { borderColor: colors.inputBorder }]}
+    <KeyboardAwareScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <FloatingLabelInput
+        label="New group"
         value={newName}
         onChangeText={setNewName}
-        placeholder="Group name (e.g. Family)"
-        placeholderTextColor="#888"
+        onClear={() => setNewName('')}
+        returnKeyType="done"
+        autoCapitalize="words"
+        style={{ marginBottom: spacing.md }}
       />
-      <Pressable style={[styles.button, { backgroundColor: colors.primaryButton }, creating && styles.buttonDisabled]} onPress={handleCreate} disabled={creating || !newName.trim()}>
-        <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{creating ? 'Creating...' : 'Create group'}</Text>
-      </Pressable>
-      <Text style={styles.sectionTitle}>Your groups</Text>
+      <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }, createGroupMutation.isPending && styles.buttonDisabled]} onPress={handleCreate} disabled={createGroupMutation.isPending || !newName.trim()} accessibilityRole="button" accessibilityLabel="Create group">
+        <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{createGroupMutation.isPending ? 'Creating...' : 'Create group'}</Text>
+      </AnimatedPressable>
+      <Text style={styles.sectionTitle} accessibilityRole="header">Your groups</Text>
       {groups.length === 0 ? (
-        <Text style={styles.body}>No groups yet. Create one to quickly invite the same people to future events.</Text>
+        <EmptyState
+          headline="No groups yet"
+          body="Create a group to quickly invite the same people to future events."
+          primaryCta={<></>}
+        />
       ) : (
         groups.map((g) => (
-          <Pressable key={g.id} style={[styles.groupRow, { borderColor: colors.border }]} onPress={() => router.push(`/groups/${g.id}`)}>
+          <Pressable key={g.id} style={[styles.groupRow, { borderColor: colors.border }]} onPress={() => router.push(`/groups/${g.id}`)} accessibilityRole="button" accessibilityLabel={`Open group ${g.name}`}>
             <Text style={styles.groupName}>{g.name}</Text>
             <Text style={styles.groupArrow}>→</Text>
           </Pressable>
         ))
       )}
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  label: { fontSize: 14, fontWeight: '500', marginBottom: 6 },
-  input: { borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 12 },
-  button: { padding: 16, borderRadius: 8, alignItems: 'center', marginBottom: 24 },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl + spacing.sm },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  skeletonWrap: { flex: 1, padding: spacing.lg, paddingTop: spacing.xxl },
+  button: { padding: spacing.lg, borderRadius: radius.input, alignItems: 'center', marginBottom: spacing.xl },
   buttonText: { fontWeight: '600' },
   buttonDisabled: { opacity: 0.6 },
-  sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 12 },
-  body: { fontSize: 14, opacity: 0.85, marginBottom: 16 },
-  groupRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderRadius: 8, borderWidth: 1, marginBottom: 8 },
-  groupName: { fontSize: 16, fontWeight: '500' },
-  groupArrow: { fontSize: 18, opacity: 0.6 },
+  sectionTitle: { fontSize: typography.h3, fontWeight: '600', marginBottom: spacing.md },
+  body: { fontSize: typography.meta, opacity: 0.85, marginBottom: spacing.lg },
+  groupRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.lg, borderRadius: radius.input, borderWidth: 1, marginBottom: spacing.sm },
+  groupName: { fontSize: typography.body, fontWeight: '500' },
+  groupArrow: { fontSize: typography.h3, opacity: 0.6 },
 });

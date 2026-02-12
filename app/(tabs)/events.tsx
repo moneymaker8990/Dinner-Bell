@@ -1,23 +1,25 @@
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AppShell } from '@/components/AppShell';
 import { GhostButton, PrimaryButton, SecondaryButton } from '@/components/Buttons';
 import { EmptyState } from '@/components/EmptyState';
 import { EventCard } from '@/components/EventCard';
 import { PageHeader } from '@/components/PageHeader';
-import { Section } from '@/components/Section';
 import { SkeletonCardList } from '@/components/SkeletonLoader';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { spacing, typography } from '@/constants/Theme';
+import { Copy } from '@/constants/Copy';
+import { fontWeight, lineHeight, radius, spacing, typography } from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
+import { useEvents } from '@/hooks/useEvents';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { createDemoEvent } from '@/lib/demoEvent';
-import { supabase } from '@/lib/supabase';
 import type { EventWithDetails } from '@/types/events';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Link } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { RefreshControl, SectionList, StyleSheet } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 function shortLocation(e: EventWithDetails): string | null {
   if (e.location_name) return e.location_name;
@@ -26,269 +28,278 @@ function shortLocation(e: EventWithDetails): string | null {
   return null;
 }
 
+type SectionData = {
+  title: string;
+  badge?: number;
+  data: EventWithDetails[];
+  isDemoSection?: boolean;
+};
+
+type SectionEventItemProps = {
+  item: EventWithDetails;
+  index: number;
+  sectionTitle: string;
+  isDemoSection?: boolean;
+  reduceMotion: boolean;
+  userId: string | undefined;
+};
+
+const SectionEventItem = React.memo(function SectionEventItem({
+  item,
+  index,
+  sectionTitle,
+  isDemoSection,
+  reduceMotion,
+  userId,
+}: SectionEventItemProps) {
+  const isFeatured = sectionTitle === Copy.events.upcoming && index === 0;
+
+  return (
+    <Animated.View
+      entering={reduceMotion ? undefined : FadeInDown.delay(index * 80).duration(400)}
+    >
+      <AnimatedPressable pressScale={0.98}>
+        <EventCard
+          eventId={item.id}
+          title={item.title}
+          bellTime={item.bell_time}
+          isHost={item.host_user_id === userId}
+          location={shortLocation(item)}
+          addressLine1={item.address_line1}
+          city={item.city}
+          featured={isFeatured}
+          goingCount={isDemoSection ? 5 : undefined}
+          maybeCount={isDemoSection ? 2 : undefined}
+          unclaimedBringCount={isDemoSection ? 3 : undefined}
+        />
+      </AnimatedPressable>
+    </Animated.View>
+  );
+});
+
 export default function EventsScreen() {
   const { user } = useAuth();
   const toast = useToast();
-  const [upcomingEvents, setUpcomingEvents] = useState<EventWithDetails[]>([]);
-  const [pastEvents, setPastEvents] = useState<EventWithDetails[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [pastCollapsed, setPastCollapsed] = useState(true);
+  const { data, isLoading, error: queryError, refetch, isRefetching } = useEvents(user?.id);
+  const upcomingEvents = data?.upcoming ?? [];
+  const pastEvents = data?.past ?? [];
+  const loading = isLoading;
+  const refreshing = isRefetching;
+  const error = queryError?.message ?? null;
   const [demoEvent, setDemoEvent] = useState<EventWithDetails | null>(null);
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
-
-  const fetchEvents = useCallback(async () => {
-    if (!user) {
-      setUpcomingEvents([]);
-      setPastEvents([]);
-      setLoading(false);
-      setRefreshing(false);
-      return;
-    }
-    const now = new Date().toISOString();
-
-    const { data: hostEvents } = await supabase
-      .from('events')
-      .select('*')
-      .eq('host_user_id', user.id)
-      .eq('is_cancelled', false)
-      .gte('bell_time', now)
-      .order('bell_time', { ascending: true });
-    const hostIds = (hostEvents ?? []) as { id: string }[];
-    const hostIdList = hostIds.map((e) => e.id);
-
-    const { data: guestRows } = await supabase
-      .from('event_guests')
-      .select('event_id')
-      .eq('user_id', user.id)
-      .in('rsvp_status', ['going', 'maybe']);
-    const guestEventIds = ((guestRows ?? []) as { event_id: string }[])
-      .map((r) => r.event_id)
-      .filter((eid) => !hostIdList.includes(eid));
-
-    let guestEvents: EventWithDetails[] = [];
-    if (guestEventIds.length > 0) {
-      const { data } = await supabase
-        .from('events')
-        .select('*')
-        .in('id', guestEventIds)
-        .eq('is_cancelled', false)
-        .gte('bell_time', now)
-        .order('bell_time', { ascending: true });
-      guestEvents = (data ?? []) as EventWithDetails[];
-    }
-
-    const combined = [...((hostEvents ?? []) as EventWithDetails[]), ...guestEvents].sort(
-      (a, b) => new Date(a.bell_time).getTime() - new Date(b.bell_time).getTime()
-    );
-    setUpcomingEvents(combined);
-
-    const { data: pastHost } = await supabase
-      .from('events')
-      .select('*')
-      .eq('host_user_id', user.id)
-      .lt('bell_time', now)
-      .order('bell_time', { ascending: false })
-      .limit(10);
-    setPastEvents((pastHost ?? []) as EventWithDetails[]);
-
-    setLoading(false);
-    setRefreshing(false);
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (!user) {
-      setUpcomingEvents([]);
-      setPastEvents([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    fetchEvents();
-  }, [user?.id, fetchEvents]);
-
-  const onRefresh = useCallback(() => {
-    if (!user) return;
-    setRefreshing(true);
-    fetchEvents();
-  }, [user?.id, fetchEvents]);
+  const reduceMotion = useReducedMotion();
 
   const handleCreateDemo = useCallback(() => {
     const demo = createDemoEvent();
     setDemoEvent(demo);
-    toast.show('Demo event created! This is a local preview.');
+    toast.show(Copy.events.demoCreated);
   }, [toast]);
 
-  const nextUp = upcomingEvents[0] ?? null;
-  const upcoming = upcomingEvents.slice(1);
+  // Build sections for SectionList
+  const sections: SectionData[] = [];
+
+  if (demoEvent && upcomingEvents.length === 0) {
+    sections.push({
+      title: Copy.common.demoPreview,
+      data: [demoEvent],
+      isDemoSection: true,
+    });
+  }
+
+  if (upcomingEvents.length > 0) {
+    sections.push({
+      title: Copy.events.upcoming,
+      badge: upcomingEvents.length,
+      data: upcomingEvents,
+    });
+  }
+
+  if (pastEvents.length > 0) {
+    sections.push({
+      title: Copy.events.past,
+      badge: pastEvents.length,
+      data: pastEvents,
+    });
+  }
+
   const allEmpty = upcomingEvents.length === 0 && !demoEvent;
+
+  const renderSectionHeader = ({ section }: { section: SectionData }) => (
+    <View style={[styles.sectionHeader, { borderLeftColor: colors.primaryBrand }]}>
+      <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+        {section.title}
+      </Text>
+      {section.badge != null && (
+        <View style={[styles.badge, { backgroundColor: colors.primaryBrand + '20' }]}>
+          <Text style={[styles.badgeText, { color: colors.primaryBrand }]}>
+            {section.badge}
+          </Text>
+        </View>
+      )}
+      {section.isDemoSection && (
+        <GhostButton onPress={() => setDemoEvent(null)} textStyle={{ fontSize: typography.small }}>
+          {Copy.common.dismiss}
+        </GhostButton>
+      )}
+    </View>
+  );
+
+  const renderItem = ({ item, index, section }: { item: EventWithDetails; index: number; section: SectionData }) => (
+    <SectionEventItem
+      item={item}
+      index={index}
+      sectionTitle={section.title}
+      isDemoSection={section.isDemoSection}
+      reduceMotion={reduceMotion}
+      userId={user?.id}
+    />
+  );
 
   return (
     <AppShell>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          user ? (
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.tint} />
-          ) : undefined
-        }>
-        <PageHeader
-          title="Events"
-          subtitle="Your upcoming dinners, hangs, and little feasts."
-          actions={
-            <View style={styles.headerActions}>
-              <Link href="/create" asChild>
-                <PrimaryButton>Create Dinner</PrimaryButton>
-              </Link>
-            </View>
-          }
-        />
-
-        {loading ? (
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <PageHeader
+            title={Copy.events.title}
+            subtitle={Copy.events.subtitle}
+            actions={
+              <View style={styles.headerActions}>
+                <Link href="/create" asChild>
+                  <PrimaryButton>Create Dinner</PrimaryButton>
+                </Link>
+              </View>
+            }
+          />
           <SkeletonCardList count={3} />
-        ) : allEmpty ? (
+        </View>
+      ) : error ? (
+        <View style={styles.errorContainer}>
+          <PageHeader title={Copy.events.title} subtitle={Copy.events.subtitle} />
+          <Text style={[styles.errorTitle, { color: colors.textPrimary }]}>{error}</Text>
+          <Text style={[styles.errorBody, { color: colors.textSecondary }]}>
+            Pull down to refresh and try again.
+          </Text>
+        </View>
+      ) : allEmpty ? (
+        <View style={styles.emptyContainer}>
+          <PageHeader
+            title={Copy.events.title}
+            subtitle={Copy.events.subtitle}
+            actions={
+              <View style={styles.headerActions}>
+                <Link href="/create" asChild>
+                  <PrimaryButton>Create Dinner</PrimaryButton>
+                </Link>
+              </View>
+            }
+          />
           <EmptyState
             variant="events"
-            headline="No upcoming dinners"
-            body="Create a dinner, invite your people, or see a demo to get started."
+            headline={Copy.events.noUpcoming}
+            body={Copy.events.noUpcomingBody}
             primaryCta={
               <Link href="/create" asChild>
-                <PrimaryButton>Create Dinner</PrimaryButton>
+                <PrimaryButton>{Copy.common.createDinner}</PrimaryButton>
               </Link>
             }
             secondaryCta={
-              <SecondaryButton onPress={handleCreateDemo}>See a demo event</SecondaryButton>
+              <SecondaryButton onPress={handleCreateDemo}>{Copy.events.seeDemo}</SecondaryButton>
             }
           />
-        ) : (
-          <>
-            {/* Demo event preview */}
-            {demoEvent && upcomingEvents.length === 0 && (
-              <Section
-                title="Demo Preview"
-                action={
-                  <GhostButton onPress={() => setDemoEvent(null)} textStyle={{ fontSize: typography.small }}>
-                    Dismiss
-                  </GhostButton>
-                }
-              >
-                <EventCard
-                  eventId={demoEvent.id}
-                  title={demoEvent.title}
-                  bellTime={demoEvent.bell_time}
-                  isHost
-                  location={shortLocation(demoEvent)}
-                  addressLine1={demoEvent.address_line1}
-                  city={demoEvent.city}
-                  goingCount={5}
-                  maybeCount={2}
-                  unclaimedBringCount={3}
-                  featured
-                />
-              </Section>
-            )}
-
-            {/* Next Up */}
-            {nextUp && (
-              <Section title="Next Up">
-                <EventCard
-                  eventId={nextUp.id}
-                  title={nextUp.title}
-                  bellTime={nextUp.bell_time}
-                  isHost={nextUp.host_user_id === user?.id}
-                  location={shortLocation(nextUp)}
-                  addressLine1={nextUp.address_line1}
-                  city={nextUp.city}
-                  featured
-                />
-              </Section>
-            )}
-
-            {/* Upcoming */}
-            {upcoming.length > 0 && (
-              <Section title="Upcoming">
-                {upcoming.map((e) => (
-                  <EventCard
-                    key={e.id}
-                    eventId={e.id}
-                    title={e.title}
-                    bellTime={e.bell_time}
-                    isHost={e.host_user_id === user?.id}
-                    location={shortLocation(e)}
-                    addressLine1={e.address_line1}
-                    city={e.city}
-                  />
-                ))}
-              </Section>
-            )}
-
-            {/* Past */}
-            <Section
-              title="Past"
-              collapsible
-              collapsed={pastCollapsed}
-              onToggle={() => setPastCollapsed(!pastCollapsed)}
-            >
-              {pastEvents.length === 0 ? (
-                <View style={styles.emptySection}>
-                  <FontAwesome name="clock-o" size={24} color={colors.textSecondary + '60'} />
-                  <Text style={[styles.emptySectionText, { color: colors.textSecondary }]}>
-                    No past events yet. Your dinner memories will live here.
-                  </Text>
+        </View>
+      ) : (
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          renderSectionHeader={renderSectionHeader}
+          stickySectionHeadersEnabled={false}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            user ? (
+              <RefreshControl refreshing={refreshing} onRefresh={() => refetch()} tintColor={colors.tint} />
+            ) : undefined
+          }
+          ListHeaderComponent={
+            <PageHeader
+              title={Copy.events.title}
+              subtitle={Copy.events.subtitle}
+              actions={
+                <View style={styles.headerActions}>
+                  <Link href="/create" asChild>
+                    <PrimaryButton>Create Dinner</PrimaryButton>
+                  </Link>
                 </View>
-              ) : (
-                pastEvents.map((e) => (
-                  <EventCard
-                    key={e.id}
-                    eventId={e.id}
-                    title={e.title}
-                    bellTime={e.bell_time}
-                    isHost={e.host_user_id === user?.id}
-                    location={shortLocation(e)}
-                    addressLine1={e.address_line1}
-                    city={e.city}
-                  />
-                ))
-              )}
-            </Section>
-
-            {/* Drafts */}
-            <Section title="Drafts">
-              <View style={styles.emptySection}>
-                <FontAwesome name="file-text-o" size={24} color={colors.textSecondary + '60'} />
-                <Text style={[styles.emptySectionText, { color: colors.textSecondary }]}>
-                  Drafts are coming soon. Save events before you're ready to send.
-                </Text>
-              </View>
-            </Section>
-          </>
-        )}
-      </ScrollView>
+              }
+            />
+          }
+          ListFooterComponent={<View style={{ height: spacing.xxl * 2 }} />}
+        />
+      )}
     </AppShell>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: spacing.xxl * 2 },
+  listContent: {
+    paddingBottom: spacing.xxl,
+  },
+  loadingContainer: {
+    flex: 1,
+    paddingHorizontal: spacing.xl,
+  },
+  emptyContainer: {
+    flex: 1,
+    paddingHorizontal: spacing.xl,
+  },
   headerActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
   },
-  emptySection: {
+  sectionHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.sm,
+    borderLeftWidth: 3,
+    marginLeft: spacing.lg,
+  },
+  sectionTitle: {
+    fontSize: typography.headline,
+    fontWeight: fontWeight.semibold,
+  },
+  badge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.chip,
+    minWidth: 24,
+    alignItems: 'center',
+  },
+  badgeText: {
+    fontSize: typography.microLabel,
+    fontWeight: fontWeight.bold,
+  },
+  errorContainer: {
+    flex: 1,
     paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
-    gap: spacing.md,
+    alignItems: 'center',
   },
-  emptySectionText: {
-    fontSize: typography.caption,
+  errorTitle: {
+    fontSize: typography.headline,
+    fontWeight: fontWeight.semibold,
     textAlign: 'center',
-    fontStyle: 'italic',
-    lineHeight: 20,
+    marginBottom: spacing.sm,
+  },
+  errorBody: {
+    fontSize: typography.body,
+    textAlign: 'center',
+    lineHeight: lineHeight.meta,
   },
 });

@@ -1,3 +1,4 @@
+import React from 'react';
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
@@ -13,7 +14,7 @@ interface SettingsRowProps {
   onPress?: () => void;
 }
 
-export function SettingsRow({ title, subtitle, icon, right, style, onPress }: SettingsRowProps) {
+export const SettingsRow = React.memo(function SettingsRow({ title, subtitle, icon, right, style, onPress }: SettingsRowProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
 
@@ -32,13 +33,13 @@ export function SettingsRow({ title, subtitle, icon, right, style, onPress }: Se
 
   if (onPress) {
     return (
-      <Pressable style={[styles.row, style]} onPress={onPress}>
+      <Pressable accessibilityRole="button" accessibilityLabel={title} style={[styles.row, style]} onPress={onPress}>
         {content}
       </Pressable>
     );
   }
   return <View style={[styles.row, style]}>{content}</View>;
-}
+});
 
 const styles = StyleSheet.create({
   row: {
@@ -60,7 +61,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: typography.caption,
-    marginTop: 2,
+    marginTop: spacing.xs / 2,
   },
   right: {
     flexShrink: 0,

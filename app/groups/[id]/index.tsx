@@ -1,10 +1,17 @@
+import { SkeletonCardList } from '@/components/SkeletonLoader';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { Copy } from '@/constants/Copy';
+import { radius, spacing, typography } from '@/constants/Theme';
+import { trackGroupDeleted, trackGroupMemberAdded } from '@/lib/analytics';
 import { addMemberToGroup, deleteGroup, getGroup, getGroupMembers, removeMemberFromGroup, type GuestGroupMember } from '@/lib/groups';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { FloatingLabelInput } from '@/components/FloatingLabelInput';
+import { KeyboardAwareScrollView } from '@/components/KeyboardAwareScrollView';
+import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { Alert, Pressable, StyleSheet } from 'react-native';
 
 export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -15,6 +22,7 @@ export default function GroupDetailScreen() {
   const colors = Colors[colorScheme];
   const [members, setMembers] = useState<GuestGroupMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [contactValue, setContactValue] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [contactType, setContactType] = useState<'email' | 'phone'>('email');
@@ -22,10 +30,16 @@ export default function GroupDetailScreen() {
 
   const load = useCallback(async () => {
     if (!id) return;
-    const [list, group] = await Promise.all([getGroupMembers(id), getGroup(id)]);
-    setMembers(list);
-    if (group) setGroupName(group.name);
-    setLoading(false);
+    setError(null);
+    try {
+      const [list, group] = await Promise.all([getGroupMembers(id), getGroup(id)]);
+      setMembers(list);
+      if (group) setGroupName(group.name);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : Copy.validation.genericError);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
   useEffect(() => {
@@ -64,11 +78,25 @@ export default function GroupDetailScreen() {
     load();
   };
 
-  if (!id) return <Text style={styles.centered}>Invalid group</Text>;
-  if (loading) return <Text style={styles.centered}>Loading...</Text>;
+  if (!id) return <Text style={[styles.centered, { color: colors.textSecondary }]}>Invalid group</Text>;
+  if (loading) {
+    return (
+      <View style={styles.skeletonWrap}>
+        <SkeletonCardList count={2} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorWrap}>
+        <Text style={[styles.body, { color: colors.warn }]}>{error}</Text>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <KeyboardAwareScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.sectionTitle}>Add member</Text>
       <Text style={styles.label}>Contact type</Text>
       <View style={styles.row}>
@@ -79,26 +107,29 @@ export default function GroupDetailScreen() {
           <Text style={[styles.chipText, contactType === 'phone' && { color: colors.primaryButtonText }]}>Phone</Text>
         </Pressable>
       </View>
-      <Text style={styles.label}>{contactType === 'email' ? 'Email' : 'Phone'}</Text>
-      <TextInput
-        style={[styles.input, { borderColor: colors.inputBorder }]}
+      <FloatingLabelInput
+        label={contactType === 'email' ? 'Email' : 'Phone'}
         value={contactValue}
         onChangeText={setContactValue}
-        placeholder={contactType === 'email' ? 'email@example.com' : '5551234567'}
-        placeholderTextColor="#888"
+        onClear={() => setContactValue('')}
+        returnKeyType="next"
+        autoCapitalize={contactType === 'email' ? 'none' : undefined}
         keyboardType={contactType === 'email' ? 'email-address' : 'phone-pad'}
+        style={{ marginBottom: spacing.md }}
       />
-      <Text style={styles.label}>Display name (optional)</Text>
-      <TextInput
-        style={[styles.input, { borderColor: colors.inputBorder }]}
+      <FloatingLabelInput
+        label="Display name (optional)"
         value={displayName}
         onChangeText={setDisplayName}
-        placeholder="Name"
-        placeholderTextColor="#888"
+        onClear={() => setDisplayName('')}
+        returnKeyType="done"
+        autoComplete="name"
+        autoCapitalize="words"
+        style={{ marginBottom: spacing.md }}
       />
-      <Pressable style={[styles.button, { backgroundColor: colors.primaryButton }, adding && styles.buttonDisabled]} onPress={handleAdd} disabled={adding || !contactValue.trim()}>
+      <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }, adding && styles.buttonDisabled]} onPress={handleAdd} disabled={adding || !contactValue.trim()} accessibilityRole="button" accessibilityLabel="Add member">
         <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{adding ? 'Adding...' : 'Add'}</Text>
-      </Pressable>
+      </AnimatedPressable>
       <Text style={styles.sectionTitle}>Members ({members.length})</Text>
       {members.length === 0 ? (
         <Text style={styles.body}>No members yet.</Text>
@@ -109,34 +140,35 @@ export default function GroupDetailScreen() {
               <Text style={styles.memberName}>{m.display_name || m.contact_value}</Text>
               <Text style={styles.memberContact}>{m.contact_value}</Text>
             </View>
-            <Pressable onPress={() => handleRemove(m.id)}>
-              <Text style={styles.removeText}>Remove</Text>
+            <Pressable onPress={() => handleRemove(m.id)} accessibilityRole="button" accessibilityLabel={`Remove ${m.display_name || m.contact_value}`}>
+              <Text style={[styles.removeText, { color: colors.error }]}>Remove</Text>
             </Pressable>
           </View>
         ))
       )}
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
-  centered: { flex: 1, textAlign: 'center', marginTop: 40 },
-  sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 12, marginTop: 24 },
-  label: { fontSize: 14, fontWeight: '500', marginBottom: 6 },
-  row: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  chip: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8 },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl + spacing.sm },
+  skeletonWrap: { flex: 1, padding: spacing.lg, paddingTop: spacing.xxl },
+  errorWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  centered: { flex: 1, textAlign: 'center', marginTop: spacing.xxl },
+  sectionTitle: { fontSize: typography.h3, fontWeight: '600', marginBottom: spacing.md, marginTop: spacing.xl },
+  label: { fontSize: typography.meta, fontWeight: '500', marginBottom: spacing.xs + 2 },
+  row: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  chip: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: radius.input },
   chipText: { fontWeight: '600' },
-  input: { borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 12 },
-  button: { padding: 16, borderRadius: 8, alignItems: 'center', marginBottom: 8 },
+  button: { padding: spacing.lg, borderRadius: radius.input, alignItems: 'center', marginBottom: spacing.sm },
   buttonText: { fontWeight: '600' },
   buttonDisabled: { opacity: 0.6 },
-  body: { fontSize: 14, opacity: 0.85 },
-  memberRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 8, borderWidth: 1, marginBottom: 8 },
+  body: { fontSize: typography.meta, opacity: 0.85 },
+  memberRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderRadius: radius.input, borderWidth: 1, marginBottom: spacing.sm },
   memberInfo: { flex: 1 },
-  memberName: { fontSize: 16, fontWeight: '500' },
-  memberContact: { fontSize: 13, opacity: 0.8 },
-  removeText: { fontSize: 14, color: '#c00', fontWeight: '500' },
-  deleteButton: { marginTop: 24, padding: 12, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
+  memberName: { fontSize: typography.body, fontWeight: '500' },
+  memberContact: { fontSize: typography.microLabel + 1, opacity: 0.8 },
+  removeText: { fontSize: typography.meta, fontWeight: '500' },
+  deleteButton: { marginTop: spacing.xl, padding: spacing.md, borderRadius: radius.input, borderWidth: 1, alignItems: 'center' },
 });

@@ -1,7 +1,7 @@
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { spacing, typography } from '@/constants/Theme';
+import { letterSpacing, spacing, typography } from '@/constants/Theme';
 import { StyleSheet, ViewStyle } from 'react-native';
 
 interface SectionProps {
@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     fontWeight: '600',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: letterSpacing.cta,
   },
   content: {},
 });

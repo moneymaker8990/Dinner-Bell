@@ -9,7 +9,7 @@ import { radius, spacing, typography } from '@/constants/Theme';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Linking, Platform, Pressable, StyleSheet } from 'react-native';
 
 export interface EventCardProps {
@@ -59,7 +59,7 @@ function openMaps(addressLine1?: string, city?: string) {
   Linking.openURL(url).catch(() => {});
 }
 
-export function EventCard({
+export const EventCard = React.memo(function EventCard({
   eventId,
   title,
   bellTime,
@@ -99,6 +99,8 @@ export function EventCard({
         pressed && styles.cardPressed,
       ]}
       onPress={() => router.push(`/event/${eventId}`)}
+      accessibilityRole="button"
+      accessibilityLabel={`Open event ${title}`}
     >
       <Card style={{ ...styles.card, ...(featured ? styles.cardFeatured : {}) }}>
         {/* Accent bar for featured */}
@@ -168,6 +170,8 @@ export function EventCard({
             <Pressable
               style={({ pressed }) => [styles.footerBtn, pressed && styles.footerBtnPressed]}
               onPress={() => router.push(`/event/${eventId}`)}
+              accessibilityRole="button"
+              accessibilityLabel="View event"
             >
               <FontAwesome name="eye" size={14} color={colors.tint} style={styles.footerBtnIcon} />
               <Text style={[styles.footerBtnText, { color: colors.tint }]}>View</Text>
@@ -176,6 +180,8 @@ export function EventCard({
               <Pressable
                 style={({ pressed }) => [styles.footerBtn, pressed && styles.footerBtnPressed]}
                 onPress={() => router.push(`/event/${eventId}/bell`)}
+                accessibilityRole="button"
+                accessibilityLabel="Ring dinner bell"
               >
                 <DinnerTriangleIcon size={14} color={colors.tint} />
                 <Text style={[styles.footerBtnText, { color: colors.tint }]}>Ring Bell</Text>
@@ -185,6 +191,8 @@ export function EventCard({
               <Pressable
                 style={({ pressed }) => [styles.footerBtn, pressed && styles.footerBtnPressed]}
                 onPress={() => router.push(`/event/${eventId}/edit`)}
+                accessibilityRole="button"
+                accessibilityLabel="Edit event"
               >
                 <FontAwesome name="pencil" size={14} color={colors.textSecondary} style={styles.footerBtnIcon} />
                 <Text style={[styles.footerBtnText, { color: colors.textSecondary }]}>Edit</Text>
@@ -196,11 +204,11 @@ export function EventCard({
         {/* Quick menu overlay */}
         {showMenu && (
           <View style={[styles.menuOverlay, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Pressable style={styles.menuItem} onPress={() => { router.push(`/event/${eventId}/edit`); setShowMenu(false); }}>
+            <Pressable style={styles.menuItem} onPress={() => { router.push(`/event/${eventId}/edit`); setShowMenu(false); }} accessibilityRole="button" accessibilityLabel="Edit event">
               <FontAwesome name="pencil" size={14} color={colors.textPrimary} />
               <Text style={[styles.menuText, { color: colors.textPrimary }]}>Edit</Text>
             </Pressable>
-            <Pressable style={styles.menuItem} onPress={handleCopyInvite}>
+            <Pressable style={styles.menuItem} onPress={handleCopyInvite} accessibilityRole="button" accessibilityLabel="Copy invite link">
               <FontAwesome name="link" size={14} color={colors.textPrimary} />
               <Text style={[styles.menuText, { color: colors.textPrimary }]}>Copy invite link</Text>
             </Pressable>
@@ -209,7 +217,7 @@ export function EventCard({
       </Card>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   cardOuter: {

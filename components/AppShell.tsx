@@ -1,10 +1,9 @@
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { spacing } from '@/constants/Theme';
-import { StyleSheet, View, ViewStyle } from 'react-native';
+import { contentMaxWidth, spacing, typography } from '@/constants/Theme';
+import { StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const MAX_WIDTH = 1100;
 const HORIZONTAL_PADDING = spacing.xl;
 
 interface AppShellProps {
@@ -12,9 +11,23 @@ interface AppShellProps {
   style?: ViewStyle;
   contentContainerStyle?: ViewStyle;
   noPadding?: boolean;
+  /** Optional contextual title (premium app shell) */
+  title?: string;
+  /** Optional subtitle below title */
+  subtitle?: string;
+  /** Optional right-side utility actions (e.g. icon buttons) */
+  utilityActions?: React.ReactNode;
 }
 
-export function AppShell({ children, style, contentContainerStyle, noPadding }: AppShellProps) {
+export function AppShell({
+  children,
+  style,
+  contentContainerStyle,
+  noPadding,
+  title,
+  subtitle,
+  utilityActions,
+}: AppShellProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
   const insets = useSafeAreaInsets();
@@ -32,6 +45,23 @@ export function AppShell({ children, style, contentContainerStyle, noPadding }: 
         },
         style,
       ]}>
+      {(title != null || subtitle != null || utilityActions != null) && (
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <View style={styles.headerText}>
+            {title != null && (
+              <Text style={[styles.title, { color: colors.textPrimary }]} numberOfLines={1}>
+                {title}
+              </Text>
+            )}
+            {subtitle != null && (
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            )}
+          </View>
+          {utilityActions != null ? <View style={styles.actions}>{utilityActions}</View> : null}
+        </View>
+      )}
       <View
         style={[
           styles.container,
@@ -51,9 +81,34 @@ const styles = StyleSheet.create({
   outer: {
     flex: 1,
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: HORIZONTAL_PADDING,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+  },
+  headerText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  title: {
+    fontSize: typography.h3,
+    fontWeight: '600',
+  },
+  subtitle: {
+    fontSize: typography.meta,
+    marginTop: spacing.xs / 2,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   container: {
     flex: 1,
-    maxWidth: MAX_WIDTH,
+    maxWidth: contentMaxWidth,
     width: '100%',
     alignSelf: 'center',
   },

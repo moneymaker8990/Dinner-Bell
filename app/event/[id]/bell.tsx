@@ -1,7 +1,10 @@
+import { CelebrationOverlay } from '@/components/CelebrationOverlay';
 import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { radius, spacing, typography } from '@/constants/Theme';
+import { trackScreenViewed } from '@/lib/analytics';
 import { playBellSound } from '@/lib/bellSound';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -16,6 +19,10 @@ export default function BellExperienceScreen() {
   const colors = Colors[colorScheme];
   const [message, setMessage] = useState<string | null>(messageFromParams ?? null);
   const [played, setPlayed] = useState(false);
+
+  useEffect(() => {
+    trackScreenViewed('RingBell');
+  }, []);
 
   useEffect(() => {
     if (messageFromParams) setMessage(messageFromParams);
@@ -42,9 +49,12 @@ export default function BellExperienceScreen() {
       <Pressable
         style={[styles.dismissBtn, { backgroundColor: colors.primaryButton }]}
         onPress={handleDismiss}
+        accessibilityRole="button"
+        accessibilityLabel="Dismiss bell notification"
       >
         <Text style={[styles.dismissText, { color: colors.primaryButtonText }]}>Dismiss</Text>
       </Pressable>
+      <CelebrationOverlay visible={played} headline="Dinner is served!" displayDuration={3000} />
     </View>
   );
 }
@@ -54,36 +64,36 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: spacing.xl,
   },
   bellBox: {
     alignItems: 'center',
-    marginBottom: 48,
+    marginBottom: spacing.xxl + spacing.lg,
   },
   title: {
-    fontSize: 32,
+    fontSize: typography.title - 2,
     fontWeight: 'bold',
-    marginTop: 24,
-    marginBottom: 8,
+    marginTop: spacing.xl,
+    marginBottom: spacing.sm,
   },
   subtitle: {
-    fontSize: 20,
+    fontSize: typography.h3 - 2,
   },
   message: {
-    fontSize: 16,
-    marginTop: 16,
+    fontSize: typography.body,
+    marginTop: spacing.lg,
     fontStyle: 'italic',
   },
   dismissBtn: {
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 12,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.xxl,
+    borderRadius: radius.input,
   },
   dismissText: {
-    fontSize: 18,
+    fontSize: typography.h3,
     fontWeight: '600',
   },
-  guestActions: { marginTop: 24, gap: 12 },
-  guestBtn: { paddingVertical: 12, alignItems: 'center' },
-  guestBtnText: { fontSize: 15, fontWeight: '500' },
+  guestActions: { marginTop: spacing.xl, gap: spacing.md },
+  guestBtn: { paddingVertical: spacing.md, alignItems: 'center' },
+  guestBtnText: { fontSize: typography.meta + 1, fontWeight: '500' },
 });

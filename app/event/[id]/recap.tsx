@@ -1,14 +1,23 @@
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Avatar } from '@/components/Avatar';
+import { CelebrationOverlay } from '@/components/CelebrationOverlay';
+import { GradientHeader } from '@/components/GradientHeader';
+import { SkeletonCardList } from '@/components/SkeletonLoader';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { Copy } from '@/constants/Copy';
+import { fontWeight, letterSpacing, radius, spacing, typography } from '@/constants/Theme';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { trackScreenViewed } from '@/lib/analytics';
 import { hapticSuccess } from '@/lib/haptics';
 import { supabase } from '@/lib/supabase';
+import type { BringItemCategory } from '@/types/database';
 import type { BringItemRow, EventGuest, EventWithDetails, MenuItemRow, MenuSection } from '@/types/events';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ScrollView, Share, StyleSheet } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -17,11 +26,23 @@ function initials(name: string): string {
   return '?';
 }
 
+function getCategoryColors(colors: typeof Colors['light']): Record<BringItemCategory, string> {
+  return {
+    drink: colors.categoryBlue,
+    side: colors.categoryGreen,
+    dessert: colors.categoryAmber,
+    supplies: colors.categoryNeutral,
+    other: colors.categoryMuted,
+  };
+}
+
 export default function RecapScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
+  const categoryColors = getCategoryColors(colors);
+  const reduceMotion = useReducedMotion();
   const [event, setEvent] = useState<EventWithDetails | null>(null);
   const [guests, setGuests] = useState<EventGuest[]>([]);
   const [bringItems, setBringItems] = useState<BringItemRow[]>([]);
@@ -29,6 +50,11 @@ export default function RecapScreen() {
   const [hostName, setHostName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showCelebration, setShowCelebration] = useState(true);
+
+  useEffect(() => {
+    trackScreenViewed('EventRecap');
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -39,7 +65,7 @@ export default function RecapScreen() {
         .eq('id', id)
         .single();
       if (eventError || !eventData) {
-        setError('Event not found');
+        setError(Copy.event.notFound);
         setLoading(false);
         return;
       }
@@ -77,70 +103,216 @@ export default function RecapScreen() {
     router.replace(`/create?duplicateEventId=${id}`);
   };
 
-  if (loading) return <Text style={styles.centered}>Loading...</Text>;
-  if (error || !event) return <Text style={styles.centered}>{error ?? 'Event not found'}</Text>;
+  const handleShare = async () => {
+    if (!event) return;
+    try {
+      await Share.share({
+        message: `Had a great time at "${event.title}"! 🍽️ — shared from Dinner Bell`,
+      });
+    } catch {
+      // user cancelled or share failed silently
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.skeletonWrap}>
+        <SkeletonCardList count={2} />
+      </View>
+    );
+  }
+  if (error || !event) return <Text style={[styles.centered, { color: colors.textSecondary }]}>{error ?? Copy.event.notFound}</Text>;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.thanks}>{Copy.recap.thanks}</Text>
-      {hostName ? <Text style={styles.hostBy}>— {hostName}</Text> : null}
-      <Text style={styles.title}>{event.title}</Text>
+    <View style={styles.outerWrap}>
+      <CelebrationOverlay
+        visible={showCelebration}
+        headline="What a night!"
+        onFinish={() => setShowCelebration(false)}
+        displayDuration={2000}
+      />
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <GradientHeader
+          title={Copy.recap.thanks}
+          subtitle={event.title}
+          height={200}
+          onBack={() => router.back()}
+        />
+        {hostName ? <Text style={styles.hostBy}>— {hostName}</Text> : null}
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{Copy.recap.whoCame}</Text>
-        <View style={styles.avatarRow}>
-          {whoCame.map((g) => (
-            <View key={g.id} style={styles.avatarWrap}>
-              <Avatar initials={initials(g.guest_name)} size={44} />
-              <Text style={styles.guestName}>{g.guest_name}</Text>
-            </View>
+        <Text style={styles.sectionTitle} accessibilityRole="header">{Copy.recap.whoCame}</Text>
+        <View style={styles.avatarGrid}>
+          {whoCame.map((g, index) => (
+            <Animated.View
+              key={g.id}
+              entering={reduceMotion ? undefined : FadeInDown.delay(index * 80).springify()}
+              style={styles.avatarWrap}
+            >
+              <Avatar initials={initials(g.guest_name)} size={52} />
+              <Text style={styles.guestName} numberOfLines={1}>{g.guest_name}</Text>
+            </Animated.View>
           ))}
         </View>
       </View>
 
-      {whatWasBrought.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>What was brought</Text>
-          {whatWasBrought.map((item) => {
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle} accessibilityRole="header">{Copy.recap.whatWasBrought}</Text>
+        {whatWasBrought.length > 0 ? (
+          whatWasBrought.map((item, index) => {
             const guest = item.claimed_by_guest_id ? guestById.get(item.claimed_by_guest_id) : null;
+            const borderColor = categoryColors[item.category] ?? categoryColors.other;
             return (
-              <View key={item.id} style={styles.broughtRow}>
-                <Text style={styles.broughtName}>{item.name}</Text>
-                {guest ? <Text style={styles.broughtBy}> — {guest.guest_name}</Text> : null}
-              </View>
+              <Animated.View
+                key={item.id}
+                entering={reduceMotion ? undefined : FadeInDown.delay(index * 60).springify()}
+                style={[
+                  styles.broughtCard,
+                  { backgroundColor: colors.elevatedSurface, borderLeftColor: borderColor },
+                ]}
+              >
+                <View style={styles.broughtCardInner}>
+                  <Text style={[styles.broughtName, { color: colors.text }]}>{item.name}</Text>
+                  <Text style={[styles.broughtCategory, { color: borderColor }]}>
+                    {item.category.charAt(0).toUpperCase() + item.category.slice(1)}
+                  </Text>
+                </View>
+                {guest ? (
+                  <Text style={[styles.broughtBy, { color: colors.textSecondary }]}>
+                    Brought by {guest.guest_name}
+                  </Text>
+                ) : null}
+              </Animated.View>
             );
-          })}
-        </View>
-      )}
+          })
+        ) : (
+          <Text style={[styles.emptyBringText, { color: colors.textSecondary }]}>{Copy.recap.noBringItems}</Text>
+        )}
+      </View>
 
-      <Pressable style={[styles.doAgainBtn, { backgroundColor: colors.primaryButton }]} onPress={handleDoThisAgain}>
+      <AnimatedPressable
+        accessibilityRole="button"
+        accessibilityLabel="Share this memory"
+        style={[styles.shareBtn, { borderColor: colors.tint }]}
+        onPress={handleShare}
+      >
+        <Text style={[styles.shareBtnText, { color: colors.tint }]}>Share this memory</Text>
+      </AnimatedPressable>
+
+      <AnimatedPressable
+        accessibilityRole="button"
+        accessibilityLabel="Host this event again"
+        style={[styles.doAgainBtn, { backgroundColor: colors.primaryButton }]}
+        onPress={handleDoThisAgain}
+      >
         <Text style={[styles.doAgainText, { color: colors.primaryButtonText }]}>{Copy.recap.doThisAgain}</Text>
-      </Pressable>
-      <Pressable style={styles.backBtn} onPress={() => router.back()}>
+      </AnimatedPressable>
+
+      <AnimatedPressable
+        accessibilityRole="button"
+        accessibilityLabel="Back to event"
+        style={styles.backBtn}
+        onPress={() => router.back()}
+      >
         <Text style={[styles.backBtnText, { color: colors.tint }]}>{Copy.recap.backToEvent}</Text>
-      </Pressable>
+      </AnimatedPressable>
     </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  outerWrap: { flex: 1 },
   container: { flex: 1 },
-  content: { padding: 24, paddingBottom: 48 },
-  accentBar: { height: 4, marginBottom: 12, borderRadius: 2 },
-  centered: { flex: 1, textAlign: 'center', marginTop: 40 },
-  thanks: { fontSize: 22, fontWeight: '600', marginBottom: 4, textAlign: 'center' },
-  hostBy: { fontSize: 14, opacity: 0.85, marginBottom: 16, textAlign: 'center' },
-  title: { fontSize: 18, opacity: 0.9, marginBottom: 24, textAlign: 'center' },
-  section: { marginBottom: 24 },
-  sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 12 },
-  avatarRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
-  avatarWrap: { alignItems: 'center' },
-  guestName: { fontSize: 12, marginTop: 4 },
-  broughtRow: { flexDirection: 'row', marginBottom: 6 },
-  broughtName: { fontWeight: '500' },
-  broughtBy: { opacity: 0.85 },
-  doAgainBtn: { padding: 18, borderRadius: 12, alignItems: 'center', marginTop: 24 },
-  doAgainText: { fontSize: 18, fontWeight: '600' },
-  backBtn: { padding: 16, alignItems: 'center', marginTop: 12 },
-  backBtnText: { fontWeight: '600' },
+  content: { paddingBottom: spacing.xxl + spacing.lg },
+  skeletonWrap: { flex: 1, padding: spacing.xl, paddingTop: spacing.xxl },
+  centered: { flex: 1, textAlign: 'center', marginTop: spacing.xxl },
+  hostBy: {
+    fontSize: typography.meta,
+    fontWeight: fontWeight.medium,
+    opacity: 0.85,
+    marginBottom: spacing.lg,
+    textAlign: 'center',
+    marginTop: spacing.lg,
+  },
+  section: { marginBottom: spacing.xl, paddingHorizontal: spacing.xl },
+  sectionTitle: {
+    fontSize: typography.h3,
+    fontWeight: fontWeight.semibold,
+    marginBottom: spacing.md,
+    letterSpacing: letterSpacing.title,
+  },
+  avatarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.lg,
+  },
+  avatarWrap: {
+    alignItems: 'center',
+    width: 72,
+  },
+  guestName: {
+    fontSize: typography.microLabel,
+    fontWeight: fontWeight.medium,
+    marginTop: spacing.xs,
+    textAlign: 'center',
+  },
+  broughtCard: {
+    borderLeftWidth: 4,
+    borderRadius: radius.card,
+    padding: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  broughtCardInner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  broughtName: {
+    fontWeight: fontWeight.semibold,
+    fontSize: typography.body,
+    flexShrink: 1,
+  },
+  broughtCategory: {
+    fontSize: typography.microLabel,
+    fontWeight: fontWeight.medium,
+    textTransform: 'capitalize',
+  },
+  broughtBy: {
+    fontSize: typography.meta,
+    marginTop: spacing.xs,
+  },
+  emptyBringText: { fontSize: typography.meta, opacity: 0.7 },
+  shareBtn: {
+    padding: spacing.lg,
+    borderRadius: radius.button,
+    alignItems: 'center',
+    marginTop: spacing.xl,
+    marginHorizontal: spacing.xl,
+    borderWidth: 2,
+  },
+  shareBtnText: {
+    fontSize: typography.body,
+    fontWeight: fontWeight.semibold,
+  },
+  doAgainBtn: {
+    padding: spacing.lg + 2,
+    borderRadius: radius.button,
+    alignItems: 'center',
+    marginTop: spacing.md,
+    marginHorizontal: spacing.xl,
+  },
+  doAgainText: {
+    fontSize: typography.h3,
+    fontWeight: fontWeight.semibold,
+  },
+  backBtn: {
+    padding: spacing.lg,
+    alignItems: 'center',
+    marginTop: spacing.md,
+    marginHorizontal: spacing.xl,
+  },
+  backBtnText: {
+    fontWeight: fontWeight.semibold,
+  },
 });

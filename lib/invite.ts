@@ -27,7 +27,7 @@ export async function getEventByInvite(
   eventId: string,
   token: string
 ): Promise<EventByInvite | null> {
-  const { data, error } = await (supabase as any).rpc('get_event_by_invite', {
+  const { data, error } = await supabase.rpc('get_event_by_invite', {
     p_event_id: eventId,
     p_token: token,
   });
@@ -73,7 +73,7 @@ export async function getInvitePreview(
   eventId: string,
   token: string
 ): Promise<InvitePreview | null> {
-  const { data, error } = await (supabase as any).rpc('get_invite_preview', {
+  const { data, error } = await supabase.rpc('get_invite_preview', {
     p_event_id: eventId,
     p_token: token,
   });
@@ -91,7 +91,7 @@ export async function addGuestByInvite(
   rsvpStatus: RsvpStatus = 'going',
   wantsReminders: boolean = true
 ): Promise<string | null> {
-  const { data, error } = await (supabase as any).rpc('add_guest_by_invite', {
+  const { data, error } = await supabase.rpc('add_guest_by_invite', {
     p_event_id: eventId,
     p_token: token,
     p_guest_name: guestName,
@@ -108,7 +108,7 @@ export async function addGuestByHost(
   guestEmail: string,
   guestName?: string
 ): Promise<string | null> {
-  const { data, error } = await (supabase as any).rpc('add_guest_by_host', {
+  const { data, error } = await supabase.rpc('add_guest_by_host', {
     p_event_id: eventId,
     p_guest_email: guestEmail.trim(),
     p_guest_name: guestName?.trim() ?? null,
@@ -129,7 +129,7 @@ export async function addGuestByHostPhone(
 ): Promise<string | null> {
   const normalized = normalizePhoneForLookup(guestPhone);
   if (normalized.length < 10) return null;
-  const { data, error } = await (supabase as any).rpc('add_guest_by_host_phone', {
+  const { data, error } = await supabase.rpc('add_guest_by_host_phone', {
     p_event_id: eventId,
     p_guest_phone: normalized,
     p_guest_name: guestName?.trim() ?? null,
@@ -180,7 +180,7 @@ export async function claimBringItem(
   claimedQuantity?: string,
   claimMessage?: string
 ): Promise<boolean> {
-  const { data, error } = await (supabase as any).rpc('claim_bring_item', {
+  const { data, error } = await supabase.rpc('claim_bring_item', {
     p_bring_item_id: bringItemId,
     p_guest_id: guestId,
     p_claimed_quantity: claimedQuantity ?? null,

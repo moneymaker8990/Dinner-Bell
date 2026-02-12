@@ -1,6 +1,8 @@
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { duration } from '@/constants/Motion';
 import { cardShadow, radius, spacing } from '@/constants/Theme';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { useEffect, useRef } from 'react';
 import { Animated, Platform, StyleSheet, View, ViewStyle } from 'react-native';
 
@@ -19,19 +21,25 @@ export function SkeletonLoader({
 }: SkeletonLoaderProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
+  const reduceMotion = useReducedMotion();
   const opacity = useRef(new Animated.Value(0.3)).current;
 
   const useNativeDriver = Platform.OS !== 'web';
   useEffect(() => {
+    if (reduceMotion) {
+      opacity.setValue(0.45);
+      return;
+    }
+    const dur = duration.regular;
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.6, useNativeDriver, duration: 700 }),
-        Animated.timing(opacity, { toValue: 0.3, useNativeDriver, duration: 700 }),
+        Animated.timing(opacity, { toValue: 0.6, useNativeDriver, duration: dur }),
+        Animated.timing(opacity, { toValue: 0.3, useNativeDriver, duration: dur }),
       ])
     );
     loop.start();
     return () => loop.stop();
-  }, [opacity, useNativeDriver]);
+  }, [opacity, useNativeDriver, reduceMotion]);
 
   const bgColor = colorScheme === 'dark' ? colors.border : colors.border + '99';
 
@@ -70,20 +78,21 @@ export function SkeletonCardList({ count = 3 }: { count?: number }) {
               backgroundColor: colors.card,
               borderColor: colors.border,
               borderRadius: radius.card,
+              shadowColor: colors.shadow,
             },
           ]}
         >
           {/* Title line */}
-          <SkeletonLoader height={20} width="65%" borderRadius={6} />
+          <SkeletonLoader height={20} width="65%" borderRadius={radius.md} />
           {/* Date line */}
           <View style={styles.metaRow}>
-            <SkeletonLoader height={12} width={12} borderRadius={6} style={styles.metaDot} />
-            <SkeletonLoader height={14} width="45%" borderRadius={4} />
+            <SkeletonLoader height={12} width={12} borderRadius={radius.md} style={styles.metaDot} />
+            <SkeletonLoader height={14} width="45%" borderRadius={radius.sm} />
           </View>
           {/* Location line */}
           <View style={styles.metaRow}>
-            <SkeletonLoader height={12} width={12} borderRadius={6} style={styles.metaDot} />
-            <SkeletonLoader height={14} width="35%" borderRadius={4} />
+            <SkeletonLoader height={12} width={12} borderRadius={radius.md} style={styles.metaDot} />
+            <SkeletonLoader height={14} width="35%" borderRadius={radius.sm} />
           </View>
           {/* Pills */}
           <View style={styles.cardPills}>
@@ -92,8 +101,8 @@ export function SkeletonCardList({ count = 3 }: { count?: number }) {
           </View>
           {/* Footer */}
           <View style={[styles.footerSkeleton, { borderTopColor: colors.border }]}>
-            <SkeletonLoader height={16} width={50} borderRadius={4} />
-            <SkeletonLoader height={16} width={70} borderRadius={4} />
+            <SkeletonLoader height={16} width={50} borderRadius={radius.sm} />
+            <SkeletonLoader height={16} width={70} borderRadius={radius.sm} />
           </View>
         </View>
       ))}

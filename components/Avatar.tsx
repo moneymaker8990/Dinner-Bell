@@ -1,7 +1,9 @@
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { Image, StyleSheet, View, ViewStyle } from 'react-native';
+import { Image } from 'expo-image';
+import React from 'react';
+import { StyleSheet, View, ViewStyle } from 'react-native';
 
 interface AvatarProps {
   initials: string;
@@ -10,7 +12,7 @@ interface AvatarProps {
   style?: ViewStyle;
 }
 
-export function Avatar({ initials, avatarUrl, size = 64, style }: AvatarProps) {
+export const Avatar = React.memo(function Avatar({ initials, avatarUrl, size = 64, style }: AvatarProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const colors = Colors[colorScheme];
   const fontSize = Math.max(14, size * 0.4);
@@ -31,7 +33,9 @@ export function Avatar({ initials, avatarUrl, size = 64, style }: AvatarProps) {
       <Image
         source={{ uri: avatarUrl }}
         style={[containerStyle, styles.image]}
-        resizeMode="cover"
+        contentFit="cover"
+        transition={200}
+        cachePolicy="memory-disk"
       />
     );
   }
@@ -43,7 +47,7 @@ export function Avatar({ initials, avatarUrl, size = 64, style }: AvatarProps) {
       </Text>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   avatar: {
