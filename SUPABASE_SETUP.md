@@ -62,6 +62,7 @@ You can do this in one of two ways: **Dashboard (SQL Editor)** or **Supabase CLI
    | 17 | `supabase/migrations/017_events_insert_only_policy.sql` |
    | 18 | `supabase/migrations/018_create_event_rpc.sql` |
    | 19 | `supabase/migrations/019_fix_create_event_token_fallback.sql` |
+   | 20 | `supabase/migrations/020_fix_event_co_hosts_rls_recursion.sql` |
 
    **Alternative:** For a fresh project you can run the entire `supabase/run-all-migrations.sql` file once in the SQL Editor (it includes all of the above).
 
@@ -151,21 +152,33 @@ For **dev sign-in** (optional): create a test user under **Authentication → Us
 
 ---
 
-## Step 7: Edge Functions (optional — for push notifications and bell)
+## Step 7: Edge Functions (optional — for push notifications, email, SMS, and bell)
 
-The app can work without Edge Functions for basic create/RSVP/bring list. For **push notifications** (invites, reminders, bell), you need to deploy and schedule the functions.
+The app can work without Edge Functions for basic create/RSVP/bring list. For **push notifications**, **invite email**, **invite SMS**, and **bell/reminders**, deploy and configure these functions.
+For a focused invite-delivery walkthrough, see `docs/invite-email-sms-contacts-setup.md`.
 
 1. **Install Supabase CLI** (if you haven’t for Option B above).
 2. **Link the project** (same as in Step 3B).
-3. **Set secrets** (e.g. for Expo push or FCM):
+3. **Set secrets** (invite email + SMS + push):
+   - **Option A (PowerShell):** Edit `scripts/set-invite-secrets.ps1` with your Resend and Twilio keys, set `SUPABASE_ACCESS_TOKEN`, then run `.\scripts\set-invite-secrets.ps1`. `INVITE_BASE_URL` is already set to `https://dinner-bell-app.vercel.app`.
+   - **Option B (manual):**
    ```bash
    supabase secrets set EXPO_ACCESS_TOKEN=your-expo-token
+   supabase secrets set RESEND_API_KEY=your-resend-key
+   supabase secrets set INVITE_FROM_EMAIL="Dinner Bell <invites@yourdomain.com>"
+   supabase secrets set TWILIO_ACCOUNT_SID=your-twilio-sid
+   supabase secrets set TWILIO_AUTH_TOKEN=your-twilio-token
+   supabase secrets set TWILIO_PHONE_NUMBER=+15551234567
+   supabase secrets set INVITE_BASE_URL=https://dinner-bell-app.vercel.app
    ```
+   **Security:** If you ever pasted a Supabase access token in chat or a script, rotate it at [Account → Access Tokens](https://supabase.com/dashboard/account/tokens).
 4. **Deploy functions:**
    ```bash
    supabase functions deploy notify-host
    supabase functions deploy send-bell
    supabase functions deploy send-invite-push
+   supabase functions deploy send-invite-email
+   supabase functions deploy send-invite-sms
    supabase functions deploy schedule-notifications
    ```
 5. **Schedule the cron** for reminders/bell: In Supabase Dashboard → **Database → Extensions** enable `pg_cron` if needed, then add a cron job that calls `schedule-notifications` (or use the Supabase cron docs for your plan).
@@ -179,11 +192,16 @@ You can do this after the app is working for create/RSVP/bring list.
 | Issue | What to do |
 |-------|------------|
 | **404 on `/rest/v1/events`** | Schema not applied or wrong project. Re-run migrations (Step 3) and confirm `.env` URL/key match that project. |
+| **404 on `/rest/v1/rpc/create_event`** | PostgREST schema cache may be stale. In SQL Editor run: `NOTIFY pgrst, 'reload schema';` then try again. If it persists, pause and resume the project in Project Settings. |
+| **`gen_random_bytes(integer) does not exist`** | Your `create_event` function still uses `gen_random_bytes`. Run the contents of `supabase/migrations/019_fix_create_event_token_fallback.sql` in SQL Editor to switch to `gen_random_uuid()` (no extension required). |
 | **Invalid API key** | Copy the **anon public** key again from Project Settings → API; ensure no extra spaces in `.env`. |
 | **RLS policy violation** | User must be signed in for host actions; for invite preview use the RPCs `get_event_by_invite` / `add_guest_by_invite` (they work for anon). |
 | **Trigger error `EXECUTE FUNCTION`** | Supabase uses Postgres 15; `EXECUTE FUNCTION` is correct. If you’re on an older Postgres elsewhere, try `EXECUTE PROCEDURE` in the trigger definition. |
 | **Env vars not updating** | Restart Expo with cache clear: `npx expo start -c`. |
-| **CORS blocked when calling Edge Functions from web** | The functions (send-bell, notify-host, send-invite-push) return CORS headers and handle OPTIONS. If you still see CORS errors, redeploy: `supabase functions deploy send-bell` (and the others). Ensure the functions are deployed to the same project as your app’s Supabase URL. |
+| **500 on `event_co_hosts`** | RLS recursion. Run `supabase/migrations/020_fix_event_co_hosts_rls_recursion.sql` in SQL Editor. |
+| **Invite not in email** | Deploy `send-invite-email` and set `RESEND_API_KEY` + `INVITE_FROM_EMAIL`. Without those, guest add still succeeds but no transactional email is sent. |
+| **Invite not in text message** | Deploy `send-invite-sms` and set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER`. |
+| **CORS blocked when calling Edge Functions from web** | The functions (`send-bell`, `notify-host`, `send-invite-push`, `send-invite-email`, `send-invite-sms`) return CORS headers and handle OPTIONS. If errors persist, redeploy those functions in the same Supabase project as your app URL/key. |
 
 ---
 
@@ -191,7 +209,7 @@ You can do this after the app is working for create/RSVP/bring list.
 
 - [ ] Supabase project created
 - [ ] Project URL and anon key copied
-- [ ] All migrations run through `supabase/migrations/019_fix_create_event_token_fallback.sql` (Dashboard SQL or `supabase db push`)
+- [ ] All migrations run through `supabase/migrations/020_fix_event_co_hosts_rls_recursion.sql` (Dashboard SQL or `supabase db push`)
 - [ ] `.env` created with `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`
 - [ ] Expo restarted; app loads and can create an event
 - [ ] (Optional) Edge Functions deployed and cron set for notifications

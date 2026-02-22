@@ -19,7 +19,7 @@ describe('fetchProfile', () => {
     (supabase.from as jest.Mock).mockImplementation((table: string) => {
       if (table === 'profiles') {
         return chainMock({
-          data: { name: 'Jane Doe', phone_number: '+1234567890', avatar_url: 'https://example.com/avatar.jpg' },
+          data: { name: 'Jane Doe', phone: '+1234567890', avatar_url: 'https://example.com/avatar.jpg' },
           error: null,
         });
       }

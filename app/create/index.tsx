@@ -640,7 +640,7 @@ export default function CreateDinnerScreen() {
       )}
 
       {/* Premium progress bar */}
-      <ProgressBar progress={step / (TOTAL_STEPS - 1)} label={STEPS[step]} height={4} />
+      <ProgressBar progress={step / (TOTAL_STEPS - 1)} label={`Step ${step + 1} of ${TOTAL_STEPS}`} height={4} />
       <Text style={[styles.stepTitle, { color: colors.textPrimary }]} accessibilityRole="header">{STEPS[step]}</Text>
 
       {step === 0 && (
@@ -648,7 +648,7 @@ export default function CreateDinnerScreen() {
           <View>
           {templates.length > 0 && (
             <>
-              <Text style={styles.label}>{Copy.create.startFromTemplate}</Text>
+              <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>{Copy.create.startFromTemplate}</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templateScroll} contentContainerStyle={styles.templateScrollContent}>
                 {templates.map((t) => (
                   <AnimatedPressable
@@ -680,7 +680,7 @@ export default function CreateDinnerScreen() {
                 onPress={() => setShowStartPicker(true)}
                 accessibilityRole="button"
                 accessibilityLabel="Pick start date and time">
-                <Text style={styles.pickerBtnText}>Pick start date & time</Text>
+                <Text style={styles.pickerBtnText}>{Copy.create.pickStartTime}</Text>
               </Pressable>
               {showStartPicker && (
                 <DateTimePicker
@@ -695,7 +695,7 @@ export default function CreateDinnerScreen() {
             </>
           )}
           <FloatingLabelInput
-            label={Copy.placeholder.dateTimePlaceholder}
+            label={Copy.create.startTime}
             value={form.startTime}
             onChangeText={(t: string) => updateForm({ startTime: t })}
             onClear={() => updateForm({ startTime: '' })}
@@ -724,7 +724,7 @@ export default function CreateDinnerScreen() {
             </>
           )}
           <FloatingLabelInput
-            label={Copy.placeholder.dateTimePlaceholder}
+            label={Copy.create.bellTime}
             value={form.bellTime}
             onChangeText={(t: string) => updateForm({ bellTime: t })}
             onClear={() => updateForm({ bellTime: '' })}
@@ -915,7 +915,7 @@ export default function CreateDinnerScreen() {
 
       {step === 3 && (
         <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
-          <Text style={styles.label}>{Copy.create.quickAdd}</Text>
+          <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>{Copy.create.quickAdd}</Text>
           <View style={styles.quickAddRow}>
             {[
               { name: 'Drinks', category: 'drink' as const },
@@ -977,7 +977,7 @@ export default function CreateDinnerScreen() {
                   style={{ width: 80, marginBottom: spacing.lg }}
                 />
               </View>
-              <Text style={styles.label}>{Copy.create.category}</Text>
+              <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>{Copy.create.category}</Text>
               <View style={styles.categoryRow}>
                 {BRING_CATEGORIES.map((cat) => (
                   <Pressable
@@ -1047,7 +1047,7 @@ export default function CreateDinnerScreen() {
           />
           {groups.length > 0 && (
             <>
-              <Text style={styles.label}>{Copy.create.inviteGroup}</Text>
+              <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>{Copy.create.inviteGroup}</Text>
               <View style={styles.quickAddRow}>
                 {groups.map((g) => (
                   <Pressable
@@ -1313,8 +1313,8 @@ const styles = StyleSheet.create({
   btnSecondary: { padding: spacing.lg, borderRadius: radius.input, alignItems: 'center', borderWidth: 1 },
   btnSecondaryText: { fontWeight: '600' },
   btnDisabled: { opacity: 0.6 },
-  templateScroll: { marginHorizontal: -(spacing.lg + spacing.xs), marginBottom: spacing.lg },
-  templateScrollContent: { paddingHorizontal: spacing.lg + spacing.xs, gap: spacing.md },
+  templateScroll: { marginBottom: spacing.lg },
+  templateScrollContent: { gap: spacing.md },
   templateCard: { width: 140, padding: spacing.md, borderRadius: radius.input, borderWidth: 1 },
   templateCardTitle: { fontSize: typography.body, fontWeight: '600', marginBottom: spacing.xs },
   templateCardDesc: { fontSize: typography.microLabel },

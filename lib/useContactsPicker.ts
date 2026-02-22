@@ -2,11 +2,16 @@ import { normalizePhoneForLookup } from '@/lib/invite';
 import { useCallback, useState } from 'react';
 import { Platform } from 'react-native';
 
-export type ContactWithPhone = { id: string; name: string; phone: string };
+export type ContactInviteTarget = {
+  id: string;
+  name: string;
+  value: string;
+  type: 'phone' | 'email';
+};
 
 export function useContactsPicker() {
   const [modalVisible, setModalVisible] = useState(false);
-  const [contactsList, setContactsList] = useState<ContactWithPhone[]>([]);
+  const [contactsList, setContactsList] = useState<ContactInviteTarget[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsError, setContactsError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -29,28 +34,47 @@ export function useContactsPicker() {
         return;
       }
       const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.PhoneNumbers],
+        fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
         sort: Contacts.SortTypes.FirstName,
       });
-      const withPhones = data
-        .filter((c) => c.phoneNumbers && c.phoneNumbers.length > 0)
-        .map((c) => {
-          const number = c.phoneNumbers![0].number ?? c.phoneNumbers![0].digits ?? '';
+      const targets: ContactInviteTarget[] = [];
+      for (const c of data) {
+        const name = [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Unknown';
+        const phones = c.phoneNumbers ?? [];
+        const emails = c.emails ?? [];
+
+        for (const p of phones) {
+          const number = p.number ?? p.digits ?? '';
           const normalized = normalizePhoneForLookup(number);
-          if (normalized.length < 10) return null;
-          return {
-            id: c.id,
-            name: [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Unknown',
-            phone: normalized,
-          };
-        })
-        .filter((c): c is ContactWithPhone => c !== null);
+          if (normalized.length < 10) continue;
+          targets.push({
+            id: `${c.id}:phone:${normalized}`,
+            name,
+            value: normalized,
+            type: 'phone',
+          });
+        }
+
+        for (const e of emails) {
+          const normalizedEmail = (e.email ?? '').trim().toLowerCase();
+          if (!normalizedEmail || !normalizedEmail.includes('@')) continue;
+          targets.push({
+            id: `${c.id}:email:${normalizedEmail}`,
+            name,
+            value: normalizedEmail,
+            type: 'email',
+          });
+        }
+      }
+
       const seen = new Set<string>();
-      const deduped = withPhones.filter((c) => {
-        if (seen.has(c.phone)) return false;
-        seen.add(c.phone);
+      const deduped = targets.filter((c) => {
+        const dedupeKey = `${c.type}:${c.value}`;
+        if (seen.has(dedupeKey)) return false;
+        seen.add(dedupeKey);
         return true;
       });
+
       setContactsList(deduped);
     } catch {
       setContactsError('Could not load contacts.');

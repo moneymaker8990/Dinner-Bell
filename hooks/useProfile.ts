@@ -17,7 +17,7 @@ interface ProfileData {
 export async function fetchProfile(userId: string): Promise<ProfileData> {
   const { data: profile } = await supabase
     .from('profiles')
-    .select('name, phone_number, avatar_url')
+    .select('name, phone, avatar_url')
     .eq('id', userId)
     .single();
 
@@ -38,7 +38,7 @@ export async function fetchProfile(userId: string): Promise<ProfileData> {
   return {
     name: (profile as { name?: string } | null)?.name ?? null,
     email,
-    phone_number: (profile as { phone_number?: string } | null)?.phone_number ?? null,
+    phone_number: (profile as { phone?: string } | null)?.phone ?? null,
     avatar_url: (profile as { avatar_url?: string } | null)?.avatar_url ?? null,
     stats: {
       hosted: hostedCount ?? 0,
@@ -74,7 +74,11 @@ export function useUpdateProfile() {
       userId: string;
       updates: Partial<{ name: string; phone_number: string | null; avatar_url: string | null }>;
     }) => {
-      const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
+      const dbUpdates: Record<string, unknown> = {};
+      if (updates.name !== undefined) dbUpdates.name = updates.name;
+      if (updates.avatar_url !== undefined) dbUpdates.avatar_url = updates.avatar_url;
+      if (updates.phone_number !== undefined) dbUpdates.phone = updates.phone_number;
+      const { error } = await supabase.from('profiles').update(dbUpdates).eq('id', userId);
       if (error) throw error;
     },
     onSuccess: (_, variables) => {

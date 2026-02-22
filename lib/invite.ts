@@ -227,6 +227,53 @@ export async function sendInvitePushByPhone(eventId: string, phone: string): Pro
   }
 }
 
+async function invokeInviteFunction(
+  functionName: string,
+  payload: Record<string, string | null | undefined>
+): Promise<boolean> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return false;
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Send transactional email invite after guest is added. */
+export async function sendInviteEmail(
+  eventId: string,
+  email: string,
+  guestName?: string
+): Promise<boolean> {
+  return invokeInviteFunction('send-invite-email', {
+    eventId,
+    email: email.trim().toLowerCase(),
+    guestName: guestName?.trim(),
+  });
+}
+
+/** Send transactional SMS invite after guest is added. */
+export async function sendInviteSms(
+  eventId: string,
+  phone: string,
+  guestName?: string
+): Promise<boolean> {
+  const normalized = normalizePhoneForLookup(phone);
+  if (normalized.length < 10) return false;
+  return invokeInviteFunction('send-invite-sms', {
+    eventId,
+    phone: normalized,
+    guestName: guestName?.trim(),
+  });
+}
+
 export async function claimBringItem(
   bringItemId: string,
   guestId: string,

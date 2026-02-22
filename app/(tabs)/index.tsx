@@ -177,7 +177,7 @@ export default function HomeScreen() {
         }
       >
         {/* Premium gradient hero */}
-        <GradientHeader height={200}>
+        <GradientHeader height={260}>
           <View style={styles.heroInner}>
             <View style={styles.heroIconGlow}>
               <BrandLogo size={72} variant="default" />
@@ -328,6 +328,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     backgroundColor: 'transparent',
+    paddingTop: spacing.sm,
   },
   heroIconGlow: {
     backgroundColor: 'rgba(255,255,255,0.15)',
