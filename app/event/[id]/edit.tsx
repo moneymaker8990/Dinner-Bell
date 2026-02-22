@@ -1,4 +1,5 @@
 import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { Card, CardBody } from '@/components/Card';
 import { FloatingLabelInput } from '@/components/FloatingLabelInput';
 import { KeyboardAwareScrollView } from '@/components/KeyboardAwareScrollView';
 import { SkeletonCardList } from '@/components/SkeletonLoader';
@@ -563,20 +564,27 @@ export default function EditEventScreen() {
         </View>
       )}
 
-      {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
+      {error ? (
+        <Card style={{ marginBottom: spacing.md }}>
+          <CardBody style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            <Text style={{ color: colors.error, fontSize: typography.body }}>!</Text>
+            <Text style={[styles.error, { color: colors.error, marginBottom: 0, flex: 1 }]}>{error}</Text>
+          </CardBody>
+        </Card>
+      ) : null}
 
       <View style={styles.footer}>
         {step > 0 && (
-          <AnimatedPressable accessibilityRole="button" accessibilityLabel="Previous step" style={[styles.btnSecondary, { borderWidth: 1, borderColor: colors.inputBorder }]} onPress={() => setStep(step - 1)}>
+          <AnimatedPressable variant="secondary" enableHaptics accessibilityRole="button" accessibilityLabel="Previous step" style={[styles.btnSecondary, { borderWidth: 1, borderColor: colors.inputBorder }]} onPress={() => setStep(step - 1)}>
             <Text style={[styles.btnSecondaryText, { color: colors.text }]}>Back</Text>
           </AnimatedPressable>
         )}
         {step < TOTAL_STEPS - 1 ? (
-          <AnimatedPressable accessibilityRole="button" accessibilityLabel="Next step" style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }]} onPress={() => setStep(step + 1)}>
+          <AnimatedPressable variant="primary" enableHaptics accessibilityRole="button" accessibilityLabel="Next step" style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }]} onPress={() => setStep(step + 1)}>
             <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>Next</Text>
           </AnimatedPressable>
         ) : (
-          <AnimatedPressable accessibilityRole="button" accessibilityLabel="Save event changes" style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }, saving && styles.btnDisabled]} onPress={handleSubmit} disabled={saving}>
+          <AnimatedPressable variant="primary" enableHaptics accessibilityRole="button" accessibilityLabel="Save event changes" style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }, saving && styles.btnDisabled]} onPress={handleSubmit} disabled={saving}>
             <Text style={[styles.btnPrimaryText, { color: colors.primaryButtonText }]}>{saving ? Copy.common.saving : Copy.event.saveChanges}</Text>
           </AnimatedPressable>
         )}

@@ -19,10 +19,10 @@ export const StatPill = React.memo(function StatPill({ label, variant = 'default
 
   const bg =
     variant === 'sage'
-      ? colors.accentSage + '20'
+      ? colors.accentSageFaint
       : variant === 'tomato'
-        ? colors.accentTomato + '20'
-        : colors.border + '80';
+        ? colors.accentTomatoFaint
+        : colors.borderStrong;
   const textColor =
     variant === 'sage'
       ? colors.accentSage

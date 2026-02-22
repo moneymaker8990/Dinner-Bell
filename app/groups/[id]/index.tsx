@@ -6,7 +6,7 @@ import { Copy } from '@/constants/Copy';
 import { radius, spacing, typography } from '@/constants/Theme';
 import { trackGroupDeleted, trackGroupMemberAdded } from '@/lib/analytics';
 import { addMemberToGroup, deleteGroup, getGroup, getGroupMembers, removeMemberFromGroup, type GuestGroupMember } from '@/lib/groups';
-import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { type Href, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { FloatingLabelInput } from '@/components/FloatingLabelInput';
 import { KeyboardAwareScrollView } from '@/components/KeyboardAwareScrollView';
@@ -56,7 +56,7 @@ export default function GroupDetailScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
         const ok = await deleteGroup(id);
-        if (ok) router.replace('/groups');
+        if (ok) router.replace('/groups' as Href);
       } },
     ]);
   };

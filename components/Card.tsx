@@ -1,12 +1,21 @@
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { cardShadow, radius, spacing, typography } from '@/constants/Theme';
+import { getElevation, radius, spacing, typography } from '@/constants/Theme';
 import { StyleSheet, ViewStyle } from 'react-native';
 
 interface CardProps {
   children: React.ReactNode;
   style?: ViewStyle;
+}
+
+function withAlpha(hex: string, alpha: number): string {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return hex;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 export function Card({ children, style }: CardProps) {
@@ -17,10 +26,10 @@ export function Card({ children, style }: CardProps) {
     <View
       style={[
         styles.card,
-        cardShadow,
+        getElevation('floating', colors.shadow),
         {
           backgroundColor: colors.card,
-          borderColor: colors.border,
+          borderColor: withAlpha(colors.primaryBrand, colorScheme === 'dark' ? 0.28 : 0.16),
           borderRadius: radius.card,
           shadowColor: colors.shadow,
         },

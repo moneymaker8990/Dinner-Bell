@@ -3,6 +3,7 @@ import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AppBottomSheet } from '@/components/AppBottomSheet';
 import { Avatar } from '@/components/Avatar';
 import { BringListItem } from '@/components/BringListItem';
+import { Card, CardBody } from '@/components/Card';
 import { FloatingLabelInput } from '@/components/FloatingLabelInput';
 import { GradientHeader } from '@/components/GradientHeader';
 import { ProgressBar } from '@/components/ProgressBar';
@@ -31,8 +32,10 @@ import { hapticSuccess, hapticTap } from '@/lib/haptics';
 import { addGuestByHost, addGuestByHostPhone, normalizePhoneForLookup, sendInvitePush, sendInvitePushByPhone } from '@/lib/invite';
 import { supabase } from '@/lib/supabase';
 import { useContactsPicker } from '@/lib/useContactsPicker';
+import { buildEventUrl, buildInviteUrl } from '@/lib/urls';
 import type { BringItemRow, EventGuest, EventWithDetails, MenuItemRow, MenuSection, ScheduleBlockRow } from '@/types/events';
 import GorhomBottomSheet from '@gorhom/bottom-sheet';
+import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -353,7 +356,7 @@ export default function EventDetailScreen() {
 
   const handleShare = async () => {
     if (!event?.invite_token) return;
-    const url = `https://dinnerbell.app/invite/${id}?token=${event.invite_token}`;
+    const url = buildInviteUrl(id, event.invite_token);
     try {
       await Share.share({ message: `You're invited to ${event.title}. RSVP: ${url}`, url });
     } catch (_) {}
@@ -372,7 +375,7 @@ export default function EventDetailScreen() {
       startTime: event.start_time,
       endTime: event.end_time ?? undefined,
       location: fullAddress(event),
-      url: `https://dinnerbell.app/event/${id}`,
+      url: buildEventUrl(id),
     });
     trackCalendarAdded(id, result.ok);
     if (result.ok) toast.show(Copy.toast.addedToCalendar);
@@ -426,12 +429,17 @@ export default function EventDetailScreen() {
     if (!id || contactsPicker.selectedIds.size === 0) return;
     setAddingFromContacts(true);
     let added = 0;
+    let failed = 0;
+    let lastError: string | null = null;
     for (const contact of contactsPicker.contactsList) {
       if (!contactsPicker.selectedIds.has(contact.id)) continue;
-      const guestId = await addGuestByHostPhone(id, contact.phone, contact.name);
-      if (guestId) {
+      const result = await addGuestByHostPhone(id, contact.phone, contact.name);
+      if (result.data) {
         added += 1;
         await sendInvitePushByPhone(id, contact.phone);
+      } else {
+        failed += 1;
+        lastError = result.error ?? lastError;
       }
     }
     setAddingFromContacts(false);
@@ -441,6 +449,7 @@ export default function EventDetailScreen() {
     supabase.from('event_guests').select('*').eq('event_id', id).then(({ data }) => setGuests(data ?? []));
     invalidateEvent(id);
     if (added > 0) trackGuestAdded(id, 'contacts');
+    if (failed > 0) setInviteError(lastError ?? `${failed} invite${failed === 1 ? '' : 's'} could not be sent.`);
     toast.show(added > 0 ? Copy.toast.guestsAdded(added) : Copy.toast.noGuestsAdded);
   };
 
@@ -456,8 +465,8 @@ export default function EventDetailScreen() {
     }
     setInviteSubmitting(true);
     setInviteError(null);
-    const guestId = await addGuestByHostPhone(id, normalized, invitePhoneName.trim() || undefined);
-    if (guestId) {
+    const result = await addGuestByHostPhone(id, normalized, invitePhoneName.trim() || undefined);
+    if (result.data) {
       await sendInvitePushByPhone(id, normalized);
       trackGuestAdded(id, 'phone');
       setInvitePhone('');
@@ -466,7 +475,7 @@ export default function EventDetailScreen() {
       invalidateEvent(id);
       toast.show(Copy.toast.guestAdded);
     } else {
-      setInviteError('Could not add guest');
+      setInviteError(result.error ?? 'Could not add guest');
     }
     setInviteSubmitting(false);
   };
@@ -478,8 +487,8 @@ export default function EventDetailScreen() {
     }
     setInviteSubmitting(true);
     setInviteError(null);
-    const guestId = await addGuestByHost(id, inviteEmail.trim(), inviteName.trim() || undefined);
-    if (guestId) {
+    const result = await addGuestByHost(id, inviteEmail.trim(), inviteName.trim() || undefined);
+    if (result.data) {
       await sendInvitePush(id, inviteEmail.trim());
       trackGuestAdded(id, 'email');
       setInviteEmail('');
@@ -487,14 +496,14 @@ export default function EventDetailScreen() {
       supabase.from('event_guests').select('*').eq('event_id', id).then(({ data }) => setGuests(data ?? []));
       invalidateEvent(id);
     } else {
-      setInviteError('Could not add guest');
+      setInviteError(result.error ?? 'Could not add guest');
     }
     setInviteSubmitting(false);
   };
 
   const handleShareFromModal = async () => {
     if (!event?.invite_token) return;
-    const url = `https://dinnerbell.app/invite/${id}?token=${event.invite_token}`;
+    const url = buildInviteUrl(id, event.invite_token);
     try {
       await Share.share({ message: `You're invited to ${event.title}. RSVP: ${url}`, url });
     } catch (_) {}
@@ -504,7 +513,7 @@ export default function EventDetailScreen() {
 
   const handleCopyInviteLink = async () => {
     if (!event?.invite_token) return;
-    const url = `https://dinnerbell.app/invite/${id}?token=${event.invite_token}`;
+    const url = buildInviteUrl(id, event.invite_token);
     await Clipboard.setStringAsync(url);
     toast.show(Copy.event.inviteLinkCopied);
   };
@@ -542,8 +551,15 @@ export default function EventDetailScreen() {
   if (error || !event) {
     return (
       <View style={[styles.container, styles.centered, { padding: spacing.xl }]}>
-        <Text style={[styles.errorTitle, { color: colors.textPrimary }]} accessibilityRole="header">{error ?? Copy.event.notFound}</Text>
-        <Text style={[styles.errorBody, { color: colors.textSecondary }]}>{Copy.event.notFoundBody}</Text>
+        <Card style={{ width: '100%', maxWidth: 560 }}>
+          <CardBody>
+            <View style={{ alignItems: 'center' }}>
+              <Ionicons name="alert-circle-outline" size={22} color={colors.error} />
+              <Text style={[styles.errorTitle, { color: colors.textPrimary }]} accessibilityRole="header">{error ?? Copy.event.notFound}</Text>
+              <Text style={[styles.errorBody, { color: colors.textSecondary }]}>{Copy.event.notFoundBody}</Text>
+            </View>
+          </CardBody>
+        </Card>
       </View>
     );
   }
@@ -561,7 +577,7 @@ export default function EventDetailScreen() {
       </GradientHeader>
       <Animated.View entering={FadeInDown.duration(400)} style={styles.content}>
       {isInEventWindow && (
-        <View style={[styles.inEventBanner, { backgroundColor: colors.tint + '20', borderColor: colors.tint + '50' }]}>
+        <View style={[styles.inEventBanner, { backgroundColor: colors.tintFaint, borderColor: colors.tintBorder }]}>
           <Text style={styles.inEventTitle} accessibilityRole="header">{isPastBell ? Copy.event.dinnerIsOn : Copy.event.bellIn(formatCountdown(event.bell_time))}</Text>
           <View style={styles.quickActionsRow}>
             {isHostOrCoHost && (
@@ -580,7 +596,7 @@ export default function EventDetailScreen() {
       )}
       {isHostOrCoHost && (
         <View style={styles.hostActions}>
-          <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push(`/event/${id}/edit`)} accessibilityRole="button" accessibilityLabel="Edit event">
+          <AnimatedPressable variant="primary" enableHaptics style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push(`/event/${id}/edit`)} accessibilityRole="button" accessibilityLabel="Edit event">
             <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.event.editEvent}</Text>
           </AnimatedPressable>
           <AnimatedPressable style={styles.buttonSecondary} onPress={openInviteModal} accessibilityRole="button" accessibilityLabel="Invite more">
@@ -602,12 +618,12 @@ export default function EventDetailScreen() {
         <Text style={styles.sectionTitle}>{Copy.common.location}</Text>
         <Text style={styles.body}>{fullAddress(event)}</Text>
         {event.location_notes ? (
-          <View style={[styles.arrivalNotesCard, { backgroundColor: colors.tint + '18', borderColor: colors.tint + '40' }]}>
+          <View style={[styles.arrivalNotesCard, { backgroundColor: colors.tintFaint, borderColor: colors.tintBorder }]}>
             <Text style={styles.arrivalNotesLabel}>{Copy.event.arrivalNotes}</Text>
             <Text style={styles.arrivalNotesText}>{event.location_notes}</Text>
           </View>
         ) : null}
-        <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={handleNavigate} accessibilityRole="button" accessibilityLabel="Open location in maps">
+        <AnimatedPressable variant="primary" enableHaptics style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={handleNavigate} accessibilityRole="button" accessibilityLabel="Open location in maps">
           <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.common.navigate}</Text>
         </AnimatedPressable>
         {!isHost && guestId && (currentGuest as EventGuest & { arrival_status?: string })?.arrival_status !== 'arrived' && (
@@ -680,7 +696,7 @@ export default function EventDetailScreen() {
                         {item.dietary_tags.map((tag) => (
                           <View
                             key={tag}
-                            style={[styles.dietaryChip, { backgroundColor: colors.accentSage + '24', borderColor: colors.accentSage + '60' }]}>
+                            style={[styles.dietaryChip, { backgroundColor: colors.accentSageFaint, borderColor: colors.accentSageBorder }]}>
                             <Text style={[styles.dietaryChipText, { color: colors.accentSage }]}>{tag}</Text>
                           </View>
                         ))}
@@ -835,6 +851,8 @@ export default function EventDetailScreen() {
               />
               {inviteError ? <Text style={[styles.errorText, { color: colors.error }]}>{inviteError}</Text> : null}
               <AnimatedPressable
+                variant="primary"
+                enableHaptics
                 style={[styles.button, { backgroundColor: colors.primaryButton }, inviteSubmitting && styles.buttonDisabled]}
                 onPress={handleAddGuestByEmail}
                 disabled={inviteSubmitting}
@@ -872,6 +890,8 @@ export default function EventDetailScreen() {
                     style={{ marginBottom: spacing.md }}
                   />
                   <AnimatedPressable
+                    variant="primary"
+                    enableHaptics
                     style={[styles.button, { backgroundColor: colors.primaryButton }, inviteSubmitting && styles.buttonDisabled]}
                     onPress={handleAddGuestByPhone}
                     disabled={inviteSubmitting}

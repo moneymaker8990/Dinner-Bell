@@ -1,6 +1,7 @@
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AppShell } from '@/components/AppShell';
 import { GhostButton, PrimaryButton, SecondaryButton } from '@/components/Buttons';
+import { Card, CardBody } from '@/components/Card';
 import { EmptyState } from '@/components/EmptyState';
 import { EventCard } from '@/components/EventCard';
 import { PageHeader } from '@/components/PageHeader';
@@ -16,6 +17,7 @@ import { useEvents } from '@/hooks/useEvents';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { createDemoEvent } from '@/lib/demoEvent';
 import type { EventWithDetails } from '@/types/events';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Link } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { RefreshControl, SectionList, StyleSheet } from 'react-native';
@@ -128,11 +130,12 @@ export default function EventsScreen() {
 
   const renderSectionHeader = ({ section }: { section: SectionData }) => (
     <View style={[styles.sectionHeader, { borderLeftColor: colors.primaryBrand }]}>
+      <FontAwesome name="bookmark-o" size={14} color={colors.primaryBrand} />
       <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
         {section.title}
       </Text>
       {section.badge != null && (
-        <View style={[styles.badge, { backgroundColor: colors.primaryBrand + '20' }]}>
+        <View style={[styles.badge, { backgroundColor: colors.primaryBrandFaint, borderColor: colors.primaryBrand }]}>
           <Text style={[styles.badgeText, { color: colors.primaryBrand }]}>
             {section.badge}
           </Text>
@@ -177,10 +180,15 @@ export default function EventsScreen() {
       ) : error ? (
         <View style={styles.errorContainer}>
           <PageHeader title={Copy.events.title} subtitle={Copy.events.subtitle} />
-          <Text style={[styles.errorTitle, { color: colors.textPrimary }]}>{error}</Text>
-          <Text style={[styles.errorBody, { color: colors.textSecondary }]}>
-            Pull down to refresh and try again.
-          </Text>
+          <Card style={styles.errorCard}>
+            <CardBody>
+              <FontAwesome name="exclamation-circle" size={20} color={colors.error} />
+              <Text style={[styles.errorTitle, { color: colors.textPrimary }]}>{error}</Text>
+              <Text style={[styles.errorBody, { color: colors.textSecondary }]}>
+                Pull down to refresh and try again.
+              </Text>
+            </CardBody>
+          </Card>
         </View>
       ) : allEmpty ? (
         <View style={styles.emptyContainer}>
@@ -267,7 +275,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xl,
     paddingBottom: spacing.sm,
-    borderLeftWidth: 3,
+    borderLeftWidth: 4,
     marginLeft: spacing.lg,
   },
   sectionTitle: {
@@ -280,6 +288,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.chip,
     minWidth: 24,
     alignItems: 'center',
+    borderWidth: 1,
   },
   badgeText: {
     fontSize: typography.microLabel,
@@ -290,6 +299,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
     alignItems: 'center',
+  },
+  errorCard: {
+    width: '100%',
+    maxWidth: 520,
   },
   errorTitle: {
     fontSize: typography.headline,

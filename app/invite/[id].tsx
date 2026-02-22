@@ -1,4 +1,5 @@
 import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { Card, CardBody } from '@/components/Card';
 import { CelebrationOverlay } from '@/components/CelebrationOverlay';
 import { FloatingLabelInput } from '@/components/FloatingLabelInput';
 import { GradientHeader } from '@/components/GradientHeader';
@@ -10,11 +11,12 @@ import Colors from '@/constants/Colors';
 import { Copy } from '@/constants/Copy';
 import { fontWeight, lineHeight, radius, spacing, typography } from '@/constants/Theme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
-import { trackInviteOpened, trackRsvpSubmitted, trackShareInitiated } from '@/lib/analytics';
+import { trackInviteOpened, trackRsvpSubmitted, trackShareInitiated, trackWaitlistJoined } from '@/lib/analytics';
 import { hapticRsvp } from '@/lib/haptics';
 import { addGuestByInvite, getInvitePreview, type EventByInvite, type InvitePreview } from '@/lib/invite';
 import { notifyHostRsvpChange } from '@/lib/notifyHost';
 import { supabase } from '@/lib/supabase';
+import { buildInviteUrl } from '@/lib/urls';
 import type { RsvpStatus } from '@/types/database';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -27,7 +29,8 @@ function fullAddress(e: EventByInvite): string {
   return parts.join(', ');
 }
 
-const RSVP_OPTIONS: { value: RsvpStatus; label: keyof typeof Copy.invite }[] = [
+type InviteRsvpLabelKey = 'rsvpGoing' | 'rsvpLate' | 'rsvpMaybe' | 'rsvpCant';
+const RSVP_OPTIONS: { value: RsvpStatus; label: InviteRsvpLabelKey }[] = [
   { value: 'going', label: 'rsvpGoing' },
   { value: 'late', label: 'rsvpLate' },
   { value: 'maybe', label: 'rsvpMaybe' },
@@ -65,6 +68,7 @@ export default function InviteScreen() {
   const [guestId, setGuestId] = useState<string | null>(null);
   const [waitlistJoined, setWaitlistJoined] = useState(false);
   const [waitlistSubmitting, setWaitlistSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
   const oneTapDone = useRef(false);
   const reduceMotion = useReducedMotion();
@@ -102,12 +106,15 @@ export default function InviteScreen() {
     oneTapDone.current = true;
     hapticRsvp();
     setSubmitting(true);
-    addGuestByInvite(id, token, 'Guest', contactParam.trim(), status, true).then((gid) => {
-      setGuestId(gid ?? null);
+    setActionError(null);
+    addGuestByInvite(id, token, 'Guest', contactParam.trim(), status, true).then((result) => {
+      setGuestId(result.data ?? null);
       setSubmitting(false);
-      if (gid) {
+      if (result.data) {
         notifyHostRsvpChange(id, 'Guest').catch(() => {});
-        router.replace(`/event/${id}?guestId=${gid}`);
+        router.replace(`/event/${id}?guestId=${result.data}`);
+      } else {
+        setActionError(result.error ?? 'Unable to submit RSVP right now.');
       }
     });
   }, [preview?.event, id, token, action, contactParam, router]);
@@ -116,31 +123,35 @@ export default function InviteScreen() {
     if (!event || !guestName.trim() || !guestContact.trim()) return;
     hapticRsvp();
     setSubmitting(true);
-    const gid = await addGuestByInvite(id!, token, guestName.trim(), guestContact.trim(), rsvpStatus, wantsReminders);
-    setGuestId(gid ?? null);
+    setActionError(null);
+    const result = await addGuestByInvite(id!, token, guestName.trim(), guestContact.trim(), rsvpStatus, wantsReminders);
+    setGuestId(result.data ?? null);
     setSubmitting(false);
-    if (gid) {
+    if (result.data) {
       trackRsvpSubmitted(id!, rsvpStatus, 'guest');
       notifyHostRsvpChange(id!, guestName.trim()).catch(() => {});
       if (rsvpStatus === 'going') {
         setShowCelebration(true);
-        setTimeout(() => router.push(`/event/${id}?guestId=${gid}`), 2200);
+        setTimeout(() => router.push(`/event/${id}?guestId=${result.data}`), 2200);
       } else {
-        router.push(`/event/${id}?guestId=${gid}`);
+        router.push(`/event/${id}?guestId=${result.data}`);
       }
+    } else {
+      setActionError(result.error ?? 'Unable to submit RSVP right now.');
     }
   };
 
   const handleShare = async () => {
     if (!event) return;
     trackShareInitiated(id!, 'invite_page');
-    const url = `https://dinnerbell.app/invite/${id}?token=${token}`;
+    const url = buildInviteUrl(id!, token);
     await Share.share({ message: `You're invited to ${event.title}. RSVP: ${url}`, url });
   };
 
   const handleJoinWaitlist = async () => {
     if (!id || !event || !guestName.trim() || !guestContact.trim()) return;
     setWaitlistSubmitting(true);
+    setActionError(null);
     const contactType = guestContact.includes('@') ? 'email' : 'phone';
     const { error } = await supabase.from('event_waitlist').insert({
       event_id: id,
@@ -152,6 +163,8 @@ export default function InviteScreen() {
     if (!error) {
       trackWaitlistJoined(id);
       setWaitlistJoined(true);
+    } else {
+      setActionError('Unable to join the waitlist right now. Please try again.');
     }
   };
 
@@ -168,8 +181,15 @@ export default function InviteScreen() {
   if (error || !event) {
     return (
       <View style={[styles.container, styles.centered, { padding: spacing.xl }]}>
-        <Text style={[styles.errorTitle, { color: colors.textPrimary }]} accessibilityRole="header">{Copy.invite.invalidInvite}</Text>
-        <Text style={[styles.errorBody, { color: colors.textSecondary }]}>Check your link or ask the host for a new invite.</Text>
+        <Card style={{ width: '100%', maxWidth: 560 }}>
+          <CardBody>
+            <View style={{ alignItems: 'center' }}>
+              <Ionicons name="alert-circle-outline" size={22} color={colors.error} />
+              <Text style={[styles.errorTitle, { color: colors.textPrimary }]} accessibilityRole="header">{Copy.invite.invalidInvite}</Text>
+              <Text style={[styles.errorBody, { color: colors.textSecondary }]}>Check your link or ask the host for a new invite.</Text>
+            </View>
+          </CardBody>
+        </Card>
       </View>
     );
   }
@@ -188,17 +208,20 @@ export default function InviteScreen() {
     if (!contact || !event) return;
     hapticRsvp();
     setSubmitting(true);
-    const gid = await addGuestByInvite(id!, token, name, contact, status, wantsReminders);
-    setGuestId(gid ?? null);
+    setActionError(null);
+    const result = await addGuestByInvite(id!, token, name, contact, status, wantsReminders);
+    setGuestId(result.data ?? null);
     setSubmitting(false);
-    if (gid) {
+    if (result.data) {
       notifyHostRsvpChange(id!, name).catch(() => {});
       if (status === 'going') {
         setShowCelebration(true);
-        setTimeout(() => router.push(`/event/${id}?guestId=${gid}`), 2200);
+        setTimeout(() => router.push(`/event/${id}?guestId=${result.data}`), 2200);
       } else {
-        router.push(`/event/${id}?guestId=${gid}`);
+        router.push(`/event/${id}?guestId=${result.data}`);
       }
+    } else {
+      setActionError(result.error ?? 'Unable to submit RSVP right now.');
     }
   };
 
@@ -252,7 +275,7 @@ export default function InviteScreen() {
                       {item.dietary_tags.map((tag) => (
                         <View
                           key={tag}
-                          style={[styles.dietaryChip, { backgroundColor: colors.accentSage + '24', borderColor: colors.accentSage + '60' }]}>
+                          style={[styles.dietaryChip, { backgroundColor: colors.accentSageFaint, borderColor: colors.accentSageBorder }]}>
                           <Text style={[styles.dietaryChipText, { color: colors.accentSage }]}>{tag}</Text>
                         </View>
                       ))}
@@ -282,6 +305,9 @@ export default function InviteScreen() {
 
       {!guestId ? (
         <>
+          {actionError ? (
+            <Text style={[styles.inlineError, { color: colors.error }]}>{actionError}</Text>
+          ) : null}
           {isEventFull ? (
             <>
               <Text style={[styles.eventFull, { color: colors.text }]} accessibilityRole="header">{Copy.invite.eventFull}</Text>
@@ -311,6 +337,8 @@ export default function InviteScreen() {
                     style={{ marginBottom: spacing.md }}
                   />
                   <AnimatedPressable
+                    variant="primary"
+                    enableHaptics
                     style={[styles.button, { backgroundColor: colors.primaryButton }, waitlistSubmitting && styles.buttonDisabled]}
                     onPress={handleJoinWaitlist}
                     disabled={waitlistSubmitting}
@@ -385,6 +413,8 @@ export default function InviteScreen() {
             </View>
           )}
           <AnimatedPressable
+            variant="primary"
+            enableHaptics
             pressScale={0.95}
             style={[styles.button, { backgroundColor: colors.primaryButton }, submitting && styles.buttonDisabled]}
             onPress={handleRsvp}
@@ -398,7 +428,7 @@ export default function InviteScreen() {
           )}
         </>
       ) : (
-        <AnimatedPressable pressScale={0.95} style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push(`/event/${id}`)} accessibilityRole="button" accessibilityLabel="View event details">
+        <AnimatedPressable variant="primary" enableHaptics pressScale={0.95} style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push(`/event/${id}`)} accessibilityRole="button" accessibilityLabel="View event details">
           <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.invite.viewEvent}</Text>
         </AnimatedPressable>
       )}
@@ -437,6 +467,7 @@ const styles = StyleSheet.create({
   notes: { fontSize: typography.meta, opacity: 0.8, marginTop: spacing.xs, marginBottom: spacing.xs },
   bringHighlights: { fontSize: typography.microLabel, opacity: 0.9, marginTop: spacing.sm },
   whoGoing: { fontSize: typography.meta, fontWeight: '500', marginBottom: spacing.lg, textAlign: 'center' },
+  inlineError: { fontSize: typography.meta, marginBottom: spacing.md },
   previewSection: { marginBottom: spacing.xl },
   sectionTitle: { fontSize: typography.headline, fontWeight: '600', marginTop: spacing.lg, marginBottom: spacing.sm },
   subsectionTitle: { fontSize: typography.body, fontWeight: '500', marginTop: spacing.sm, marginBottom: spacing.xs },

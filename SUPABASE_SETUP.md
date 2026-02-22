@@ -58,6 +58,10 @@ You can do this in one of two ways: **Dashboard (SQL Editor)** or **Supabase CLI
    | 13 | `supabase/migrations/013_host_power_tools.sql` |
    | 14 | `supabase/migrations/014_invite_preview_guest_count.sql` |
    | 15 | `supabase/migrations/015_discovery_public_toggle.sql` |
+   | 16 | `supabase/migrations/016_fix_events_insert_policy.sql` |
+   | 17 | `supabase/migrations/017_events_insert_only_policy.sql` |
+   | 18 | `supabase/migrations/018_create_event_rpc.sql` |
+   | 19 | `supabase/migrations/019_fix_create_event_token_fallback.sql` |
 
    **Alternative:** For a fresh project you can run the entire `supabase/run-all-migrations.sql` file once in the SQL Editor (it includes all of the above).
 
@@ -187,7 +191,7 @@ You can do this after the app is working for create/RSVP/bring list.
 
 - [ ] Supabase project created
 - [ ] Project URL and anon key copied
-- [ ] All 6 migrations run (Dashboard SQL or `supabase db push`)
+- [ ] All migrations run through `supabase/migrations/019_fix_create_event_token_fallback.sql` (Dashboard SQL or `supabase db push`)
 - [ ] `.env` created with `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`
 - [ ] Expo restarted; app loads and can create an event
 - [ ] (Optional) Edge Functions deployed and cron set for notifications

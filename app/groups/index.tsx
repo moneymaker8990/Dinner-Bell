@@ -10,7 +10,7 @@ import { radius, spacing, typography } from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCreateGroup, useGroups } from '@/hooks/useGroups';
 import { trackGroupCreated } from '@/lib/analytics';
-import { useRouter } from 'expo-router';
+import { type Href, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 
@@ -29,7 +29,7 @@ export default function GroupsScreen() {
       const created = await createGroupMutation.mutateAsync({ userId: user.id, name: newName.trim() });
       trackGroupCreated(created.id);
       setNewName('');
-      router.push(`/groups/${created.id}`);
+      router.push(`/groups/${created.id}` as Href);
     } catch {
       // mutation error is surfaced via createGroupMutation.error
     }
@@ -85,7 +85,7 @@ export default function GroupsScreen() {
         />
       ) : (
         groups.map((g) => (
-          <Pressable key={g.id} style={[styles.groupRow, { borderColor: colors.border }]} onPress={() => router.push(`/groups/${g.id}`)} accessibilityRole="button" accessibilityLabel={`Open group ${g.name}`}>
+          <Pressable key={g.id} style={[styles.groupRow, { borderColor: colors.border }]} onPress={() => router.push(`/groups/${g.id}` as Href)} accessibilityRole="button" accessibilityLabel={`Open group ${g.name}`}>
             <Text style={styles.groupName}>{g.name}</Text>
             <Text style={styles.groupArrow}>→</Text>
           </Pressable>

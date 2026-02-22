@@ -7,7 +7,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { Copy } from '@/constants/Copy';
 import { duration } from '@/constants/Motion';
-import { elevation, fontWeight, letterSpacing, radius, spacing, typography } from '@/constants/Theme';
+import { elevation, fontFamily, fontWeight, letterSpacing, radius, spacing, typography } from '@/constants/Theme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { trackSignIn, trackSignUp } from '@/lib/analytics';
 import { supabase } from '@/lib/supabase';
@@ -197,6 +197,8 @@ export default function SignInScreen() {
 
           {/* Primary sign-in button */}
           <AnimatedPressable
+            variant="primary"
+            enableHaptics
             style={[
               styles.primaryButton,
               {
@@ -223,6 +225,8 @@ export default function SignInScreen() {
 
           {/* Secondary create account button */}
           <AnimatedPressable
+            variant="secondary"
+            enableHaptics
             style={styles.secondaryButton}
             onPress={handleSignUp}
             disabled={loading}
@@ -266,6 +270,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   heroTitle: {
+    fontFamily: fontFamily.display,
     fontSize: typography.headline + 4,
     fontWeight: fontWeight.bold,
     textAlign: 'center',

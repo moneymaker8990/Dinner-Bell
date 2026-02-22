@@ -175,6 +175,20 @@ export const fontWeight = {
   bold: '700' as const,
 } as const;
 
+/** Font family tokens */
+export const fontFamily = {
+  display: Platform.select({
+    ios: 'Georgia',
+    android: 'serif',
+    default: 'Georgia',
+  }) as string,
+  body: Platform.select({
+    ios: 'System',
+    android: 'sans-serif',
+    default: 'System',
+  }) as string,
+} as const;
+
 /** Z-index scale for layering */
 export const zIndex = {
   base: 0,

@@ -19,6 +19,11 @@ export default {
     // Primary brand
     primaryBrand: honeyGold,
     tint: honeyGold,
+    primaryBrandFaint: 'rgba(199,154,43,0.16)',
+    tintFaint: 'rgba(199,154,43,0.14)',
+    tintSoft: 'rgba(199,154,43,0.24)',
+    tintBorder: 'rgba(199,154,43,0.40)',
+    tintMuted: 'rgba(199,154,43,0.60)',
     // Elevated surfaces
     surface: '#FAF6F0',
     surface2: '#F8F4EE',
@@ -42,6 +47,7 @@ export default {
     // Gradient hero
     gradientStart: '#C79A2B',
     gradientEnd: '#4F7D6A',
+    gradientStartFaint: 'rgba(199,154,43,0.15)',
     // RSVP accents
     rsvpGoing: sageGreen,
     rsvpLate: '#E8C547',
@@ -64,10 +70,14 @@ export default {
     primaryButtonText: '#fff',
     secondaryText: '#6B645C',
     accentSage: sageGreen,
+    accentSageFaint: 'rgba(79,125,106,0.24)',
+    accentSageBorder: 'rgba(79,125,106,0.60)',
     accentTomato: tomato,
+    accentTomatoFaint: 'rgba(212,90,78,0.20)',
     tabBarBackground: '#FAF6F0',
     tabBarBorder: '#E8E1D8',
     placeholder: '#888888',
+    borderStrong: 'rgba(232,225,216,0.80)',
     overlay: 'rgba(0,0,0,0.5)',
     // Text on gradient/overlay surfaces
     onGradient: '#ffffff',
@@ -76,8 +86,11 @@ export default {
     onOverlayMuted: 'rgba(255,255,255,0.7)',
     // Brand icon colors (for onboarding, accents)
     brandGold: '#E8C547',
+    brandGoldFaint: 'rgba(232,197,71,0.20)',
     brandSage: '#4F7D6A',
+    brandSageFaint: 'rgba(79,125,106,0.20)',
     brandAmber: '#C79A2B',
+    brandAmberFaint: 'rgba(199,154,43,0.20)',
     // Category palette (recap, tags)
     categoryBlue: '#4A90C4',
     categoryGreen: '#5F9078',
@@ -90,6 +103,11 @@ export default {
   dark: {
     primaryBrand: tintColorDark,
     tint: tintColorDark,
+    primaryBrandFaint: 'rgba(232,197,71,0.20)',
+    tintFaint: 'rgba(232,197,71,0.18)',
+    tintSoft: 'rgba(232,197,71,0.24)',
+    tintBorder: 'rgba(232,197,71,0.50)',
+    tintMuted: 'rgba(232,197,71,0.60)',
     surface: '#3D3629',
     surface2: '#362E22',
     elevatedSurface: '#4A4235',
@@ -108,6 +126,7 @@ export default {
     disabledText: '#7A7062',
     gradientStart: '#E8C547',
     gradientEnd: '#5F9078',
+    gradientStartFaint: 'rgba(232,197,71,0.15)',
     rsvpGoing: '#5F9078',
     rsvpLate: '#E8C547',
     rsvpMaybe: '#9A8F7E',
@@ -126,10 +145,14 @@ export default {
     primaryButtonText: '#2C2419',
     secondaryText: '#C4B8A8',
     accentSage: '#5F9078',
+    accentSageFaint: 'rgba(95,144,120,0.24)',
+    accentSageBorder: 'rgba(95,144,120,0.60)',
     accentTomato: '#E07064',
+    accentTomatoFaint: 'rgba(224,112,100,0.20)',
     tabBarBackground: '#2C2419',
     tabBarBorder: '#5C5346',
     placeholder: '#9A8F7E',
+    borderStrong: 'rgba(92,83,70,0.80)',
     overlay: 'rgba(0,0,0,0.6)',
     // Text on gradient/overlay surfaces
     onGradient: '#ffffff',
@@ -138,8 +161,11 @@ export default {
     onOverlayMuted: 'rgba(255,255,255,0.7)',
     // Brand icon colors
     brandGold: '#E8C547',
+    brandGoldFaint: 'rgba(232,197,71,0.20)',
     brandSage: '#5F9078',
+    brandSageFaint: 'rgba(95,144,120,0.20)',
     brandAmber: '#D4AD3A',
+    brandAmberFaint: 'rgba(212,173,58,0.20)',
     // Category palette (recap, tags)
     categoryBlue: '#6AABDB',
     categoryGreen: '#5F9078',

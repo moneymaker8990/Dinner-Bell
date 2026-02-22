@@ -1,6 +1,6 @@
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { fontWeight, gradients, letterSpacing, spacing, typography } from '@/constants/Theme';
+import { fontFamily, fontWeight, gradients, letterSpacing, spacing, typography } from '@/constants/Theme';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -118,6 +118,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   title: {
+    fontFamily: fontFamily.display,
     fontSize: typography.title,
     fontWeight: fontWeight.bold,
     letterSpacing: letterSpacing.title,

@@ -8,9 +8,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
     Platform,
     Pressable,
+    StyleProp,
     StyleSheet,
     TextInput,
-    TextInputProps
+    TextInputProps,
+    ViewStyle,
 } from 'react-native';
 import Animated, {
     interpolate,
@@ -19,7 +21,7 @@ import Animated, {
     withTiming
 } from 'react-native-reanimated';
 
-interface FloatingLabelInputProps extends Omit<TextInputProps, 'placeholder'> {
+interface FloatingLabelInputProps extends Omit<TextInputProps, 'placeholder' | 'style'> {
   /** Label that floats above the input when focused/filled */
   label: string;
   /** Error message — shows red border and error text */
@@ -28,6 +30,7 @@ interface FloatingLabelInputProps extends Omit<TextInputProps, 'placeholder'> {
   clearable?: boolean;
   /** Called when clear button pressed */
   onClear?: () => void;
+  style?: StyleProp<ViewStyle>;
 }
 
 /**

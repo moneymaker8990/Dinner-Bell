@@ -23,20 +23,22 @@ export const Avatar = React.memo(function Avatar({ initials, avatarUrl, size = 6
       width: size,
       height: size,
       borderRadius: size / 2,
-      backgroundColor: colors.tint + '40',
+      backgroundColor: colors.tintBorder,
     },
     style,
   ];
 
   if (avatarUrl) {
     return (
-      <Image
-        source={{ uri: avatarUrl }}
-        style={[containerStyle, styles.image]}
-        contentFit="cover"
-        transition={200}
-        cachePolicy="memory-disk"
-      />
+      <View style={containerStyle}>
+        <Image
+          source={{ uri: avatarUrl }}
+          style={styles.image}
+          contentFit="cover"
+          transition={200}
+          cachePolicy="memory-disk"
+        />
+      </View>
     );
   }
 
@@ -55,6 +57,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   image: {
+    width: '100%',
+    height: '100%',
     overflow: 'hidden',
   },
   initials: {

@@ -1,3 +1,4 @@
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { IconButton } from '@/components/Buttons';
 import { Card } from '@/components/Card';
 import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
@@ -5,7 +6,7 @@ import { StatPill } from '@/components/StatPill';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { radius, spacing, typography } from '@/constants/Theme';
+import { fontFamily, getElevation, radius, spacing, typography } from '@/constants/Theme';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
@@ -93,11 +94,10 @@ export const EventCard = React.memo(function EventCard({
   };
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.cardOuter,
-        pressed && styles.cardPressed,
-      ]}
+    <AnimatedPressable
+      enableHaptics
+      pressScale={0.985}
+      style={styles.cardOuter}
       onPress={() => router.push(`/event/${eventId}`)}
       accessibilityRole="button"
       accessibilityLabel={`Open event ${title}`}
@@ -156,7 +156,7 @@ export const EventCard = React.memo(function EventCard({
               <StatPill label={`${unclaimedBringCount} items unclaimed`} />
             )}
             {within24h && countdownText !== 'Past' && (
-              <View style={[styles.countdownChip, { backgroundColor: colors.tint + '18' }]}>
+              <View style={[styles.countdownChip, { backgroundColor: colorScheme === 'dark' ? 'rgba(232,197,71,0.22)' : 'rgba(184,134,11,0.14)', borderColor: colorScheme === 'dark' ? 'rgba(232,197,71,0.45)' : 'rgba(184,134,11,0.28)', shadowColor: colors.shadow }]}>
                 <DinnerTriangleIcon size={14} color={colors.tint} />
                 <Text style={[styles.countdownText, { color: colors.tint }]}>in {countdownText}</Text>
               </View>
@@ -203,7 +203,7 @@ export const EventCard = React.memo(function EventCard({
 
         {/* Quick menu overlay */}
         {showMenu && (
-          <View style={[styles.menuOverlay, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.menuOverlay, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: colors.shadow }, getElevation('raised', colors.shadow)]}>
             <Pressable style={styles.menuItem} onPress={() => { router.push(`/event/${eventId}/edit`); setShowMenu(false); }} accessibilityRole="button" accessibilityLabel="Edit event">
               <FontAwesome name="pencil" size={14} color={colors.textPrimary} />
               <Text style={[styles.menuText, { color: colors.textPrimary }]}>Edit</Text>
@@ -215,17 +215,14 @@ export const EventCard = React.memo(function EventCard({
           </View>
         )}
       </Card>
-    </Pressable>
+    </AnimatedPressable>
   );
 });
 
 const styles = StyleSheet.create({
   cardOuter: {
     marginVertical: spacing.sm,
-  },
-  cardPressed: {
-    opacity: 0.95,
-    transform: [{ scale: 0.99 }],
+    ...getElevation('raised', '#000000'),
   },
   card: {
     overflow: 'hidden',
@@ -234,8 +231,10 @@ const styles = StyleSheet.create({
     borderWidth: 0,
   },
   accentBar: {
-    height: 3,
+    height: 5,
     width: '100%',
+    borderBottomLeftRadius: radius.sm,
+    borderBottomRightRadius: radius.sm,
   },
   cardContent: {
     padding: spacing.lg,
@@ -251,6 +250,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
+    fontFamily: fontFamily.display,
     fontSize: typography.h3,
     fontWeight: '600',
     marginBottom: spacing.sm,
@@ -287,6 +287,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: radius.chip,
+    borderWidth: 1,
+    ...getElevation('raised', '#000000'),
   },
   countdownText: {
     fontSize: typography.caption,

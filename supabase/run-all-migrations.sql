@@ -823,6 +823,8 @@ CREATE POLICY "Host or co-host can delete events" ON public.events
   FOR DELETE USING (public.is_event_host_or_co_host(id, auth.uid()));
 
 -- ========== 018_create_event_rpc.sql ==========
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE OR REPLACE FUNCTION public.create_event(
   p_title TEXT,
   p_description TEXT DEFAULT NULL,
@@ -860,7 +862,8 @@ BEGIN
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Not authenticated';
   END IF;
-  v_token := COALESCE(NULLIF(trim(p_invite_token), ''), encode(gen_random_bytes(18), 'hex'));
+  -- Avoid hard dependency on gen_random_bytes; UUID text fallback is broadly available.
+  v_token := COALESCE(NULLIF(trim(p_invite_token), ''), replace(gen_random_uuid()::text, '-', ''));
   INSERT INTO public.events (
     host_user_id, title, description, start_time, bell_time, end_time, timezone,
     location_name, address_line1, address_line2, city, state, postal_code, country,

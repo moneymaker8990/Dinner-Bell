@@ -121,7 +121,7 @@ function RootLayoutNav({ hasOnboarded }: { hasOnboarded: boolean }) {
     headerTintColor: colors.textPrimary,
     headerShadowVisible: false,
     contentStyle: {
-      backgroundColor: colors.background,
+      backgroundColor: colors.surface,
     },
     animation: 'slide_from_right' as const,
     animationDuration: 250,

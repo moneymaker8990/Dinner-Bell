@@ -40,7 +40,7 @@ export function EmptyState({
 
   return (
     <View style={[styles.wrapper, style]}>
-      <View style={[styles.iconWrap, { backgroundColor: colors.tint + '18' }]}>
+      <View style={[styles.iconWrap, { backgroundColor: colors.tintFaint }]}>
         {defaultIcon}
       </View>
       <Text style={[styles.headline, { color: colors.textPrimary }]}>{headline}</Text>

@@ -1,5 +1,6 @@
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AppBottomSheet } from '@/components/AppBottomSheet';
+import { Card, CardBody } from '@/components/Card';
 import { PrimaryButton } from '@/components/Buttons';
 import { CelebrationOverlay } from '@/components/CelebrationOverlay';
 import { FloatingLabelInput } from '@/components/FloatingLabelInput';
@@ -420,7 +421,16 @@ export default function CreateDinnerScreen() {
       });
 
       if (eventError || eventId == null) {
-        const msg = eventError?.code === 'PGRST116' ? 'Run the "Create event RPC" SQL in Supabase SQL Editor (see migration 018).' : (eventError?.message ?? 'Failed to create event');
+        if (__DEV__) {
+          console.error('create_event failed', {
+            code: eventError?.code,
+            message: eventError?.message,
+            details: eventError?.details,
+          });
+        }
+        const msg = eventError?.code === 'PGRST116'
+          ? 'Event service is not configured correctly yet. Please run the latest Supabase migrations and try again.'
+          : 'Something went wrong creating your event. Please try again.';
         setError(msg);
         setSaving(false);
         return;
@@ -501,14 +511,21 @@ export default function CreateDinnerScreen() {
         }
       }
 
+      let inviteFailures = 0;
       for (const contact of form.guestEmails) {
         const trimmed = contact.trim();
         if (!trimmed) continue;
         if (trimmed.includes('@')) {
-          await addGuestByHost(eventId, trimmed);
+          const result = await addGuestByHost(eventId, trimmed);
+          if (!result.data) inviteFailures += 1;
         } else {
-          await addGuestByHostPhone(eventId, trimmed);
+          const result = await addGuestByHostPhone(eventId, trimmed);
+          if (!result.data) inviteFailures += 1;
         }
+      }
+
+      if (inviteFailures > 0) {
+        setError(`${inviteFailures} invite${inviteFailures === 1 ? '' : 's'} could not be sent. You can retry from the event details page.`);
       }
 
       hapticSuccess();
@@ -1073,7 +1090,14 @@ export default function CreateDinnerScreen() {
         </Animated.View>
       )}
 
-      {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
+      {error ? (
+        <Card style={{ marginBottom: spacing.md }}>
+          <CardBody style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            <Ionicons name="alert-circle-outline" size={18} color={colors.error} />
+            <Text style={[styles.error, { color: colors.error, marginBottom: 0, flex: 1 }]}>{error}</Text>
+          </CardBody>
+        </Card>
+      ) : null}
 
       {Platform.OS !== 'web' && (
         <AppBottomSheet
@@ -1132,6 +1156,8 @@ export default function CreateDinnerScreen() {
       <View style={styles.footer}>
         {step > 0 && (
           <AnimatedPressable
+            variant="secondary"
+            enableHaptics
             style={[styles.btnSecondary, { borderColor: colors.inputBorder }]}
             onPress={handleBack}
             accessibilityRole="button"
@@ -1141,6 +1167,8 @@ export default function CreateDinnerScreen() {
         )}
         {step < TOTAL_STEPS - 1 ? (
           <AnimatedPressable
+            variant="primary"
+            enableHaptics
             style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }]}
             onPress={handleNext}
             accessibilityRole="button"
@@ -1149,6 +1177,8 @@ export default function CreateDinnerScreen() {
           </AnimatedPressable>
         ) : (
           <AnimatedPressable
+            variant="primary"
+            enableHaptics
             style={[styles.btnPrimary, { backgroundColor: colors.primaryButton }, saving && styles.btnDisabled]}
             onPress={handleSubmit}
             disabled={saving}
@@ -1261,8 +1291,6 @@ const styles = StyleSheet.create({
   templateCard: { width: 140, padding: spacing.md, borderRadius: radius.input, borderWidth: 1 },
   templateCardTitle: { fontSize: typography.body, fontWeight: '600', marginBottom: spacing.xs },
   templateCardDesc: { fontSize: typography.microLabel },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
-  toggleLabel: { fontSize: typography.meta, flex: 1 },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
   modalContent: { borderRadius: spacing.lg, padding: spacing.xl, width: '100%', maxWidth: 340 },
   modalTitle: { fontSize: typography.h3, fontWeight: '600', marginBottom: spacing.lg },

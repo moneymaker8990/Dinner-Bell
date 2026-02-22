@@ -2,7 +2,7 @@ import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { fontWeight, gradients, letterSpacing, lineHeight, radius, spacing, typography } from '@/constants/Theme';
+import { fontFamily, fontWeight, gradients, letterSpacing, lineHeight, radius, spacing, typography } from '@/constants/Theme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -28,6 +28,7 @@ interface OnboardingSlide {
   id: string;
   icon: keyof typeof Ionicons.glyphMap;
   iconColor: string;
+  iconBgColor: string;
   title: string;
   body: string;
 }
@@ -38,6 +39,7 @@ function getSlides(colors: typeof Colors['light']): OnboardingSlide[] {
       id: '1',
       icon: 'notifications-outline',
       iconColor: colors.brandGold,
+      iconBgColor: colors.brandGoldFaint,
       title: 'Ring the bell',
       body: 'Gather your people for dinner. One tap sends the signal — dinner is ready.',
     },
@@ -45,6 +47,7 @@ function getSlides(colors: typeof Colors['light']): OnboardingSlide[] {
       id: '2',
       icon: 'people-outline',
       iconColor: colors.brandSage,
+      iconBgColor: colors.brandSageFaint,
       title: 'Plan together',
       body: 'Menu, bring list, and RSVP — everything your guests need in one place.',
     },
@@ -52,6 +55,7 @@ function getSlides(colors: typeof Colors['light']): OnboardingSlide[] {
       id: '3',
       icon: 'restaurant-outline',
       iconColor: colors.brandAmber,
+      iconBgColor: colors.brandAmberFaint,
       title: 'Time to eat',
       body: 'Ring the bell when dinner is ready. Everyone gets notified instantly.',
     },
@@ -104,7 +108,7 @@ export default function OnboardingScreen() {
         entering={reduceMotion ? undefined : FadeInDown.delay(200).duration(500)}
         style={styles.slideContent}
       >
-        <View style={[styles.iconCircle, { backgroundColor: item.iconColor + '20' }]}>
+        <View style={[styles.iconCircle, { backgroundColor: item.iconBgColor }]}>
           <Ionicons name={item.icon} size={64} color={item.iconColor} />
         </View>
         <Text style={[styles.slideTitle, { color: c.textPrimary }]}>{item.title}</Text>
@@ -115,7 +119,7 @@ export default function OnboardingScreen() {
 
   return (
     <LinearGradient
-      colors={[c.gradientStart + '15', c.background]}
+      colors={[c.gradientStartFaint, c.background]}
       start={gradients.accentGlow.start}
       end={gradients.accentGlow.end}
       style={[styles.container, { backgroundColor: c.background }]}
@@ -166,11 +170,13 @@ export default function OnboardingScreen() {
       {/* Footer */}
       <View style={styles.footer}>
         {!isLast && (
-          <AnimatedPressable onPress={handleSkip} style={styles.skipBtn}>
+          <AnimatedPressable variant="ghost" enableHaptics onPress={handleSkip} style={styles.skipBtn}>
             <Text style={[styles.skipText, { color: c.textSecondary }]}>Skip</Text>
           </AnimatedPressable>
         )}
         <AnimatedPressable
+          variant="primary"
+          enableHaptics
           style={[
             styles.nextBtn,
             { backgroundColor: c.primaryButton },
@@ -216,6 +222,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xxl,
   },
   slideTitle: {
+    fontFamily: fontFamily.display,
     fontSize: typography.title,
     fontWeight: fontWeight.bold,
     textAlign: 'center',

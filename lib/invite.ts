@@ -19,6 +19,7 @@ export interface EventByInvite {
   postal_code: string;
   country: string;
   location_notes: string | null;
+  cover_image_url?: string | null;
   is_cancelled: boolean;
   capacity?: number | null;
 }
@@ -83,6 +84,26 @@ export async function getInvitePreview(
 
 export type RsvpStatus = 'going' | 'maybe' | 'cant' | 'late';
 
+export type InviteMutationResult = {
+  data: string | null;
+  error: string | null;
+  code?: string | null;
+};
+
+function toInviteErrorMessage(message?: string | null): string {
+  const lower = (message ?? '').toLowerCase();
+  if (lower.includes('duplicate') || lower.includes('already exists')) {
+    return 'That guest is already invited.';
+  }
+  if (lower.includes('invalid') && lower.includes('phone')) {
+    return 'Please enter a valid phone number.';
+  }
+  if (lower.includes('permission') || lower.includes('not authenticated')) {
+    return 'You do not have permission to send this invite.';
+  }
+  return 'Unable to send the invitation right now. Please try again.';
+}
+
 export async function addGuestByInvite(
   eventId: string,
   token: string,
@@ -90,31 +111,51 @@ export async function addGuestByInvite(
   guestPhoneOrEmail: string,
   rsvpStatus: RsvpStatus = 'going',
   wantsReminders: boolean = true
-): Promise<string | null> {
-  const { data, error } = await supabase.rpc('add_guest_by_invite', {
-    p_event_id: eventId,
-    p_token: token,
-    p_guest_name: guestName,
-    p_guest_phone_or_email: guestPhoneOrEmail,
-    p_rsvp_status: rsvpStatus,
-    p_wants_reminders: wantsReminders,
-  });
-  if (error || data == null) return null;
-  return data as string;
+): Promise<InviteMutationResult> {
+  try {
+    const { data, error } = await supabase.rpc('add_guest_by_invite', {
+      p_event_id: eventId,
+      p_token: token,
+      p_guest_name: guestName,
+      p_guest_phone_or_email: guestPhoneOrEmail,
+      p_rsvp_status: rsvpStatus,
+      p_wants_reminders: wantsReminders,
+    });
+    if (error || data == null) {
+      return {
+        data: null,
+        error: toInviteErrorMessage(error?.message),
+        code: error?.code,
+      };
+    }
+    return { data: data as string, error: null, code: null };
+  } catch {
+    return { data: null, error: 'Network error while submitting RSVP. Please try again.', code: null };
+  }
 }
 
 export async function addGuestByHost(
   eventId: string,
   guestEmail: string,
   guestName?: string
-): Promise<string | null> {
-  const { data, error } = await supabase.rpc('add_guest_by_host', {
-    p_event_id: eventId,
-    p_guest_email: guestEmail.trim(),
-    p_guest_name: guestName?.trim() ?? null,
-  });
-  if (error || data == null) return null;
-  return data as string;
+): Promise<InviteMutationResult> {
+  try {
+    const { data, error } = await supabase.rpc('add_guest_by_host', {
+      p_event_id: eventId,
+      p_guest_email: guestEmail.trim(),
+      p_guest_name: guestName?.trim() ?? null,
+    });
+    if (error || data == null) {
+      return {
+        data: null,
+        error: toInviteErrorMessage(error?.message),
+        code: error?.code,
+      };
+    }
+    return { data: data as string, error: null, code: null };
+  } catch {
+    return { data: null, error: 'Network error while sending invite. Please try again.', code: null };
+  }
 }
 
 /** Normalize phone to digits-only for storage and lookup. */
@@ -126,16 +167,28 @@ export async function addGuestByHostPhone(
   eventId: string,
   guestPhone: string,
   guestName?: string
-): Promise<string | null> {
+): Promise<InviteMutationResult> {
   const normalized = normalizePhoneForLookup(guestPhone);
-  if (normalized.length < 10) return null;
-  const { data, error } = await supabase.rpc('add_guest_by_host_phone', {
-    p_event_id: eventId,
-    p_guest_phone: normalized,
-    p_guest_name: guestName?.trim() ?? null,
-  });
-  if (error || data == null) return null;
-  return data as string;
+  if (normalized.length < 10) {
+    return { data: null, error: 'Please enter a valid phone number.', code: 'INVALID_PHONE' };
+  }
+  try {
+    const { data, error } = await supabase.rpc('add_guest_by_host_phone', {
+      p_event_id: eventId,
+      p_guest_phone: normalized,
+      p_guest_name: guestName?.trim() ?? null,
+    });
+    if (error || data == null) {
+      return {
+        data: null,
+        error: toInviteErrorMessage(error?.message),
+        code: error?.code,
+      };
+    }
+    return { data: data as string, error: null, code: null };
+  } catch {
+    return { data: null, error: 'Network error while sending invite. Please try again.', code: null };
+  }
 }
 
 /** Send "You're invited" push to a user with this email (host only). Call after addGuestByHost. */

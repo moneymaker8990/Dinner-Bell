@@ -24,7 +24,7 @@ import { normalizePhoneForLookup } from '@/lib/invite';
 import { supabase } from '@/lib/supabase';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { type Href, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch } from 'react-native';
 import Animated, { FadeInDown, runOnJS, useAnimatedReaction, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -253,12 +253,12 @@ export default function ProfileScreen() {
                     <Text style={[styles.badgesLabel, { color: colors.textSecondary }]}>Badges</Text>
                     <View style={styles.badgeChips}>
                       {hostedCount >= 1 && (
-                        <View style={[styles.badgeChip, { backgroundColor: colors.tint + '24', borderColor: colors.tint + '60' }]}>
+                        <View style={[styles.badgeChip, { backgroundColor: colors.tintSoft, borderColor: colors.tintMuted }]}>
                           <Text style={[styles.badgeChipText, { color: colors.tint }]}>Dinner host</Text>
                         </View>
                       )}
                       {claimedCount >= 10 && (
-                        <View style={[styles.badgeChip, { backgroundColor: colors.accentSage + '24', borderColor: colors.accentSage + '60' }]}>
+                        <View style={[styles.badgeChip, { backgroundColor: colors.accentSageFaint, borderColor: colors.accentSageBorder }]}>
                           <Text style={[styles.badgeChipText, { color: colors.accentSage }]}>Super bringer</Text>
                         </View>
                       )}
@@ -290,14 +290,14 @@ export default function ProfileScreen() {
                   title={Copy.profile.bellSound}
                   subtitle={Copy.profile.bellSoundDesc}
                   icon={<FontAwesome name="music" size={16} color={colors.tint} />}
-                  right={<Switch value={bellSoundOn} onValueChange={setBellSoundOn} trackColor={{ false: colors.border, true: colors.tint }} thumbColor={colors.primaryButtonText} accessibilityLabel="Bell sound" />}
+                  right={<Switch value={bellSoundOn} onValueChange={setBellSoundOn} trackColor={{ false: colors.border, true: colors.tint }} ios_backgroundColor={colors.border} thumbColor={bellSoundOn ? colors.primaryButtonText : colors.elevatedSurface} accessibilityLabel="Bell sound" />}
                 />
                 <Divider />
                 <SettingsRow
                   title={Copy.profile.vibrateOnBell}
                   subtitle={Copy.profile.vibrateOnBellDesc}
                   icon={<FontAwesome name="mobile" size={16} color={colors.tint} />}
-                  right={<Switch value={vibrateOnBell} onValueChange={setVibrateOnBell} trackColor={{ false: colors.border, true: colors.tint }} thumbColor={colors.primaryButtonText} accessibilityLabel="Vibrate on bell" />}
+                  right={<Switch value={vibrateOnBell} onValueChange={setVibrateOnBell} trackColor={{ false: colors.border, true: colors.tint }} ios_backgroundColor={colors.border} thumbColor={vibrateOnBell ? colors.primaryButtonText : colors.elevatedSurface} accessibilityLabel="Vibrate on bell" />}
                 />
               </CardBody>
             </Card>
@@ -326,7 +326,7 @@ export default function ProfileScreen() {
                   right={<Text style={[styles.settingLink, { color: colors.tint }]}>Manage</Text>}
                 />
                 <Divider />
-                <AnimatedPressable onPress={() => router.push('/groups')}>
+                <AnimatedPressable onPress={() => router.push('/groups' as Href)}>
                   <SettingsRow
                     title={Copy.profile.guestGroups}
                     subtitle={Copy.profile.guestGroupsDesc}
@@ -345,7 +345,7 @@ export default function ProfileScreen() {
                   title={Copy.profile.showRsvp}
                   subtitle={Copy.profile.showRsvpDesc}
                   icon={<FontAwesome name="eye" size={16} color={colors.tint} />}
-                  right={<Switch value={showRsvpToOthers} onValueChange={setShowRsvpToOthers} trackColor={{ false: colors.border, true: colors.tint }} thumbColor={colors.primaryButtonText} accessibilityLabel="Show RSVP status to others" />}
+                  right={<Switch value={showRsvpToOthers} onValueChange={setShowRsvpToOthers} trackColor={{ false: colors.border, true: colors.tint }} ios_backgroundColor={colors.border} thumbColor={showRsvpToOthers ? colors.primaryButtonText : colors.elevatedSurface} accessibilityLabel="Show RSVP status to others" />}
                 />
               </CardBody>
             </Card>
@@ -401,7 +401,7 @@ export default function ProfileScreen() {
           <Card style={styles.signInCard}>
             <CardBody>
               <View style={styles.signInContent}>
-                <FontAwesome name="user-circle-o" size={48} color={colors.tint + '60'} />
+                <FontAwesome name="user-circle-o" size={48} color={colors.tintMuted} />
                 <Text style={[styles.signInText, { color: colors.textSecondary }]}>
                   {Copy.profile.signInFullPrompt}
                 </Text>
