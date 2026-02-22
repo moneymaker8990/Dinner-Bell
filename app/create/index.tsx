@@ -428,10 +428,17 @@ export default function CreateDinnerScreen() {
             details: eventError?.details,
           });
         }
-        const msg = eventError?.code === 'PGRST116'
-          ? 'Event service is not configured correctly yet. Please run the latest Supabase migrations and try again.'
-          : 'Something went wrong creating your event. Please try again.';
-        setError(msg);
+        // Show which Supabase host we're using so you can verify env vars (e.g. on Vercel)
+        const hostHint = supabaseUrl.includes('placeholder')
+          ? ' (config: placeholder — set EXPO_PUBLIC_SUPABASE_URL in Vercel and redeploy)'
+          : ` (API: ${supabaseUrl.replace(/^https?:\/\//, '').split('/')[0]})`;
+        const msg =
+          eventError?.code === 'PGRST116'
+            ? `Event service not configured. Run the latest Supabase migrations.${hostHint}`
+            : eventError?.code === '404' || eventError?.message?.includes('404')
+              ? `Supabase returned 404 — check EXPO_PUBLIC_SUPABASE_URL matches your project.${hostHint}`
+              : `Something went wrong creating your event. ${eventError?.message ?? ''}${hostHint}`;
+        setError(msg.trim());
         setSaving(false);
         return;
       }
