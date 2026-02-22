@@ -11,6 +11,10 @@ import Animated, {
     withSpring,
 } from 'react-native-reanimated';
 
+const AnimatedPressableBase = Animated.createAnimatedComponent(
+  Pressable as React.ComponentType<any>
+);
+
 interface AnimatedPressableProps extends PressableProps {
   /** Scale when pressed. Defaults to 0.97. */
   pressScale?: number;
@@ -116,16 +120,14 @@ export function AnimatedPressable({
           : undefined;
 
   return (
-    <Animated.View style={[variantStyle, animatedStyle, style]}>
-      <Pressable
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        disabled={disabled}
-        style={{ borderRadius: radius.input }}
-        {...rest}
-      >
-        {children}
-      </Pressable>
-    </Animated.View>
+    <AnimatedPressableBase
+      style={[variantStyle, animatedStyle, style]}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      disabled={disabled}
+      {...rest}
+    >
+      {children}
+    </AnimatedPressableBase>
   );
 }
