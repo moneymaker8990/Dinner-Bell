@@ -18,7 +18,7 @@ import { trackCreateFailed, trackCreatePublished, trackCreateStart, trackCreateS
 import { defaultForm, generateId, type CreateEventForm } from '@/lib/eventForm';
 import { fetchGroups, getGroupMembers, type GuestGroup } from '@/lib/groups';
 import { hapticSuccess } from '@/lib/haptics';
-import { addGuestByHost, addGuestByHostPhone } from '@/lib/invite';
+import { addGuestByHost, addGuestByHostPhone, sendInviteEmail, sendInvitePush, sendInvitePushByPhone, sendInviteSms } from '@/lib/invite';
 import { queryClient } from '@/lib/queryClient';
 import { supabase, supabaseUrl } from '@/lib/supabase';
 import { fetchTemplates, THEME_ACCENT, type EventTemplate } from '@/lib/templates';
@@ -75,7 +75,7 @@ function formatBellTime(iso: string): string {
 }
 
 type ContactRowProps = {
-  item: { id: string; name: string; phone: string };
+  item: { id: string; name: string; value: string; type: 'phone' | 'email' };
   isSelected: boolean;
   onToggle: (id: string) => void;
   inputBorderColor: string;
@@ -98,7 +98,7 @@ const ContactRow = React.memo(function ContactRow({
       accessibilityRole="button"
       accessibilityLabel={`${isSelected ? 'Deselect' : 'Select'} ${item.name} for invite`}>
       <Text style={styles.contactRowName}>{item.name}</Text>
-      <Text style={styles.contactRowPhone}>{item.phone}</Text>
+      <Text style={styles.contactRowPhone}>{item.value}</Text>
       <View style={[styles.checkbox, { borderColor: borderColor }, isSelected && { backgroundColor: tintColor }]} />
     </Pressable>
   );
@@ -519,20 +519,35 @@ export default function CreateDinnerScreen() {
       }
 
       let inviteFailures = 0;
+      let deliveryFailures = 0;
       for (const contact of form.guestEmails) {
         const trimmed = contact.trim();
         if (!trimmed) continue;
         if (trimmed.includes('@')) {
           const result = await addGuestByHost(eventId, trimmed);
-          if (!result.data) inviteFailures += 1;
+          if (!result.data) {
+            inviteFailures += 1;
+          } else {
+            const emailSent = await sendInviteEmail(eventId, trimmed);
+            if (!emailSent) deliveryFailures += 1;
+            await sendInvitePush(eventId, trimmed);
+          }
         } else {
           const result = await addGuestByHostPhone(eventId, trimmed);
-          if (!result.data) inviteFailures += 1;
+          if (!result.data) {
+            inviteFailures += 1;
+          } else {
+            const smsSent = await sendInviteSms(eventId, trimmed);
+            if (!smsSent) deliveryFailures += 1;
+            await sendInvitePushByPhone(eventId, trimmed);
+          }
         }
       }
 
       if (inviteFailures > 0) {
         setError(`${inviteFailures} invite${inviteFailures === 1 ? '' : 's'} could not be sent. You can retry from the event details page.`);
+      } else if (deliveryFailures > 0) {
+        setError(Copy.validation.inviteDeliveryFailed(deliveryFailures));
       }
 
       hapticSuccess();
@@ -553,10 +568,10 @@ export default function CreateDinnerScreen() {
 
   const handleAddSelectedContactsToGuests = () => {
     if (contactsPicker.selectedIds.size === 0) return;
-    const phones = contactsPicker.contactsList
+    const contacts = contactsPicker.contactsList
       .filter((c) => contactsPicker.selectedIds.has(c.id))
-      .map((c) => c.phone);
-    const combined = [...new Set([...form.guestEmails, ...phones])];
+      .map((c) => c.value);
+    const combined = [...new Set([...form.guestEmails, ...contacts])];
     updateForm({ guestEmails: combined });
     contactsPicker.setModalVisible(false);
     contactsPicker.setSelectedIds(new Set());
@@ -630,6 +645,7 @@ export default function CreateDinnerScreen() {
 
       {step === 0 && (
         <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
+          <View>
           {templates.length > 0 && (
             <>
               <Text style={styles.label}>{Copy.create.startFromTemplate}</Text>
@@ -744,6 +760,7 @@ export default function CreateDinnerScreen() {
                 <Text style={{ color: colors.error, fontSize: typography.meta }}>Remove cover image</Text>
               </Pressable>
             )}
+          </View>
           </View>
         </Animated.View>
       )}
@@ -1051,16 +1068,19 @@ export default function CreateDinnerScreen() {
             </>
           )}
           {Platform.OS !== 'web' && (
-            <Pressable
-              style={[styles.buttonSecondary, { borderColor: colors.inputBorder }]}
-              onPress={() => {
-                contactsPicker.openPicker();
-                contactsSheetRef.current?.snapToIndex(0);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Add guests from contacts">
-              <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.common.addFromContacts}</Text>
-            </Pressable>
+            <>
+              <Text style={styles.hint}>Invite from contacts and we will text or email them automatically.</Text>
+              <Pressable
+                style={[styles.buttonSecondary, { borderColor: colors.inputBorder }]}
+                onPress={() => {
+                  contactsPicker.openPicker();
+                  contactsSheetRef.current?.snapToIndex(0);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Add guests from contacts">
+                <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.common.addFromContacts}</Text>
+              </Pressable>
+            </>
           )}
           <FloatingLabelInput
             label={Copy.placeholder.guestsInput}
@@ -1077,22 +1097,24 @@ export default function CreateDinnerScreen() {
       )}
 
       {step === 5 && (
-        <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)} style={styles.summary}>
-          <Text style={[styles.almostThere, { color: colors.secondaryText }]}>{Copy.create.almostThere}</Text>
-          <View style={[styles.summaryCard, { backgroundColor: colors.card }]}>
-            <Text style={styles.summaryTitle}>{form.title}</Text>
-            <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
-              {Copy.create.bellLabel}{formatBellTime(form.bellTime)}
-            </Text>
-            <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
-              {form.addressLine1}, {form.city}
-            </Text>
-            <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
-              {Copy.create.menuSectionsLabel}{form.menuSections.length}
-            </Text>
-            <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
-              Bring items: {form.bringItems.length}
-            </Text>
+        <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
+          <View style={styles.summary}>
+            <Text style={[styles.almostThere, { color: colors.secondaryText }]}>{Copy.create.almostThere}</Text>
+            <View style={[styles.summaryCard, { backgroundColor: colors.card }]}>
+              <Text style={styles.summaryTitle}>{form.title}</Text>
+              <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
+                {Copy.create.bellLabel}{formatBellTime(form.bellTime)}
+              </Text>
+              <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
+                {form.addressLine1}, {form.city}
+              </Text>
+              <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
+                {Copy.create.menuSectionsLabel}{form.menuSections.length}
+              </Text>
+              <Text style={[styles.summaryText, { color: colors.secondaryText }]}>
+                Bring items: {form.bringItems.length}
+              </Text>
+            </View>
           </View>
         </Animated.View>
       )}
@@ -1198,11 +1220,9 @@ export default function CreateDinnerScreen() {
         )}
       </View>
       {draftSavedLabel && (
-        <Animated.Text
-          entering={FadeInDown.duration(200)}
-          style={[styles.draftSavedText, { color: colors.secondaryText }]}>
-          Draft saved
-        </Animated.Text>
+        <Animated.View entering={FadeInDown.duration(200)}>
+          <Text style={[styles.draftSavedText, { color: colors.secondaryText }]}>Draft saved</Text>
+        </Animated.View>
       )}
     </KeyboardAwareScrollView>
   );

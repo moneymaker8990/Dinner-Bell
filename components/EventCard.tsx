@@ -1,7 +1,7 @@
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { IconButton } from '@/components/Buttons';
 import { Card } from '@/components/Card';
-import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
+import { BrandLogo } from '@/components/BrandLogo';
 import { StatPill } from '@/components/StatPill';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -97,7 +97,7 @@ export const EventCard = React.memo(function EventCard({
     <AnimatedPressable
       enableHaptics
       pressScale={0.985}
-      style={styles.cardOuter}
+      style={[styles.cardOuter, getElevation('raised', colors.shadow)]}
       onPress={() => router.push(`/event/${eventId}`)}
       accessibilityRole="button"
       accessibilityLabel={`Open event ${title}`}
@@ -156,8 +156,18 @@ export const EventCard = React.memo(function EventCard({
               <StatPill label={`${unclaimedBringCount} items unclaimed`} />
             )}
             {within24h && countdownText !== 'Past' && (
-              <View style={[styles.countdownChip, { backgroundColor: colorScheme === 'dark' ? 'rgba(232,197,71,0.22)' : 'rgba(184,134,11,0.14)', borderColor: colorScheme === 'dark' ? 'rgba(232,197,71,0.45)' : 'rgba(184,134,11,0.28)', shadowColor: colors.shadow }]}>
-                <DinnerTriangleIcon size={14} color={colors.tint} />
+              <View
+                style={[
+                  styles.countdownChip,
+                  {
+                    backgroundColor: colors.tintSoft,
+                    borderColor: colors.tintBorder,
+                    shadowColor: colors.shadow,
+                  },
+                  getElevation('raised', colors.shadow),
+                ]}
+              >
+                <BrandLogo size={14} variant="primary" />
                 <Text style={[styles.countdownText, { color: colors.tint }]}>in {countdownText}</Text>
               </View>
             )}
@@ -183,7 +193,7 @@ export const EventCard = React.memo(function EventCard({
                 accessibilityRole="button"
                 accessibilityLabel="Ring dinner bell"
               >
-                <DinnerTriangleIcon size={14} color={colors.tint} />
+                <BrandLogo size={14} variant="primary" />
                 <Text style={[styles.footerBtnText, { color: colors.tint }]}>Ring Bell</Text>
               </Pressable>
             )}
@@ -222,7 +232,6 @@ export const EventCard = React.memo(function EventCard({
 const styles = StyleSheet.create({
   cardOuter: {
     marginVertical: spacing.sm,
-    ...getElevation('raised', '#000000'),
   },
   card: {
     overflow: 'hidden',
@@ -288,7 +297,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: radius.chip,
     borderWidth: 1,
-    ...getElevation('raised', '#000000'),
   },
   countdownText: {
     fontSize: typography.caption,

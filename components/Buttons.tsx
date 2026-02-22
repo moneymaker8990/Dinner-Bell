@@ -5,7 +5,7 @@ import { radius, spacing, typography } from '@/constants/Theme';
 import React from 'react';
 import { Pressable, StyleSheet, TextStyle, View, ViewStyle } from 'react-native';
 
-const MIN_TOUCH_HEIGHT = 44;
+const BUTTON_HEIGHT = 54;
 
 interface BaseButtonProps {
   onPress?: () => void;
@@ -18,8 +18,8 @@ interface BaseButtonProps {
   [key: string]: any;
 }
 
-export const PrimaryButton = React.forwardRef<View, BaseButtonProps>(
-  function PrimaryButton({ onPress, children, disabled, style, textStyle, ...rest }, ref) {
+export const ButtonPrimary = React.forwardRef<View, BaseButtonProps>(
+  function ButtonPrimary({ onPress, children, disabled, style, textStyle, ...rest }, ref) {
     const colorScheme = useColorScheme() ?? 'light';
     const colors = Colors[colorScheme];
 
@@ -33,8 +33,9 @@ export const PrimaryButton = React.forwardRef<View, BaseButtonProps>(
           {
             backgroundColor: colors.primaryButton,
             borderRadius: radius.button,
-            opacity: disabled ? 0.5 : pressed ? 0.9 : 1,
+            opacity: disabled ? 0.5 : 1,
           },
+          pressed && !disabled ? { backgroundColor: colors.pressed } : null,
           style,
         ]}
         accessibilityRole="button"
@@ -59,7 +60,7 @@ export const SecondaryButton = React.forwardRef<View, BaseButtonProps>(
         style={({ pressed }) => [
           styles.base,
           {
-            backgroundColor: 'transparent',
+            backgroundColor: colors.surface,
             borderWidth: 1,
             borderColor: colors.border,
             borderRadius: radius.button,
@@ -71,6 +72,39 @@ export const SecondaryButton = React.forwardRef<View, BaseButtonProps>(
         accessibilityState={{ disabled }}
         {...rest}>
         <Text style={[styles.text, { color: colors.textPrimary }, textStyle]}>{children}</Text>
+      </Pressable>
+    );
+  }
+);
+
+export const ButtonSecondary = SecondaryButton;
+export const PrimaryButton = ButtonPrimary;
+
+export const ButtonDanger = React.forwardRef<View, BaseButtonProps>(
+  function ButtonDanger({ onPress, children, disabled, style, textStyle, ...rest }, ref) {
+    const colorScheme = useColorScheme() ?? 'light';
+    const colors = Colors[colorScheme];
+
+    return (
+      <Pressable
+        ref={ref}
+        onPress={onPress}
+        disabled={disabled}
+        style={({ pressed }) => [
+          styles.base,
+          {
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.accentTomatoFaint,
+            borderRadius: radius.button,
+            opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
+          },
+          style,
+        ]}
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        {...rest}>
+        <Text style={[styles.text, { color: colors.error }, textStyle]}>{children}</Text>
       </Pressable>
     );
   }
@@ -133,9 +167,9 @@ export function IconButton({ onPress, icon, disabled, style, accessibilityLabel 
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: MIN_TOUCH_HEIGHT,
+    minHeight: BUTTON_HEIGHT,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -144,8 +178,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   iconBtn: {
-    width: MIN_TOUCH_HEIGHT,
-    height: MIN_TOUCH_HEIGHT,
+    width: BUTTON_HEIGHT,
+    height: BUTTON_HEIGHT,
     justifyContent: 'center',
     alignItems: 'center',
   },

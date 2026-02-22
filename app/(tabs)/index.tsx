@@ -3,7 +3,7 @@ import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AppShell } from '@/components/AppShell';
 import { PrimaryButton, SecondaryButton } from '@/components/Buttons';
 import { Card, CardBody } from '@/components/Card';
-import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
+import { BrandLogo } from '@/components/BrandLogo';
 import { EmptyState } from '@/components/EmptyState';
 import { EventCard, formatCountdown } from '@/components/EventCard';
 import { GradientHeader } from '@/components/GradientHeader';
@@ -180,7 +180,7 @@ export default function HomeScreen() {
         <GradientHeader height={200}>
           <View style={styles.heroInner}>
             <View style={styles.heroIconGlow}>
-              <DinnerTriangleIcon size={72} color={colors.onGradient} />
+              <BrandLogo size={72} variant="default" />
             </View>
             <ReAnimated.Text
               style={[styles.heroTitle, { color: colors.onGradient }]}

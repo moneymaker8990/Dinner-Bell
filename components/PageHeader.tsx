@@ -16,7 +16,11 @@ export function PageHeader({ title, subtitle, actions, style }: PageHeaderProps)
   const colors = Colors[colorScheme];
 
   return (
-    <View style={[styles.wrapper, style]} lightColor={colors.background} darkColor={colors.background}>
+    <View
+      style={[styles.wrapper, { borderBottomColor: colors.border }, style]}
+      lightColor={colors.background}
+      darkColor={colors.background}
+    >
       <View style={styles.textBlock}>
         <Text
           style={[styles.title, { color: colors.textPrimary }]}
@@ -39,6 +43,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: spacing.lg,
+    borderBottomWidth: 1,
+    paddingBottom: spacing.md,
     marginBottom: spacing.xl,
   },
   textBlock: {

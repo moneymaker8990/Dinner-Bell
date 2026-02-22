@@ -1,5 +1,5 @@
 import { AnimatedPressable } from '@/components/AnimatedPressable';
-import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
+import { BrandLogo } from '@/components/BrandLogo';
 import { FloatingLabelInput } from '@/components/FloatingLabelInput';
 import { GradientHeader } from '@/components/GradientHeader';
 import { KeyboardAwareScrollView } from '@/components/KeyboardAwareScrollView';
@@ -144,7 +144,7 @@ export default function SignInScreen() {
       {/* Hero gradient header */}
       <GradientHeader height={260}>
         <View style={styles.heroContent}>
-          <DinnerTriangleIcon size={96} color={colors.onGradient} />
+          <BrandLogo size={96} variant="default" />
           <Text style={[styles.heroTitle, { color: colors.onGradient }]}>Welcome to{'\n'}Dinner Bell</Text>
           <Text style={[styles.heroSubtitle, { color: colors.onGradientMuted }]}>
             Ring the bell and gather your people.

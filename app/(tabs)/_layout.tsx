@@ -2,7 +2,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Tabs } from 'expo-router';
 import React from 'react';
 
-import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
+import { BrandLogo } from '@/components/BrandLogo';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
@@ -63,7 +63,7 @@ export default function TabLayout() {
         options={{
           title: 'Home',
           headerShown: false,
-          tabBarIcon: ({ color }) => <DinnerTriangleIcon size={22} color={color} />,
+          tabBarIcon: ({ color }) => <BrandLogo size={22} color={color} />,
         }}
       />
       <Tabs.Screen

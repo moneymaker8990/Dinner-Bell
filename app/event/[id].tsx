@@ -29,7 +29,7 @@ import {
 import { addEventToCalendar } from '@/lib/calendar';
 import { createDemoEvent } from '@/lib/demoEvent';
 import { hapticSuccess, hapticTap } from '@/lib/haptics';
-import { addGuestByHost, addGuestByHostPhone, normalizePhoneForLookup, sendInvitePush, sendInvitePushByPhone } from '@/lib/invite';
+import { addGuestByHost, addGuestByHostPhone, normalizePhoneForLookup, sendInviteEmail, sendInvitePush, sendInvitePushByPhone, sendInviteSms } from '@/lib/invite';
 import { supabase } from '@/lib/supabase';
 import { useContactsPicker } from '@/lib/useContactsPicker';
 import { buildEventUrl, buildInviteUrl } from '@/lib/urls';
@@ -430,16 +430,32 @@ export default function EventDetailScreen() {
     setAddingFromContacts(true);
     let added = 0;
     let failed = 0;
+    let deliveryFailed = 0;
     let lastError: string | null = null;
     for (const contact of contactsPicker.contactsList) {
       if (!contactsPicker.selectedIds.has(contact.id)) continue;
-      const result = await addGuestByHostPhone(id, contact.phone, contact.name);
-      if (result.data) {
-        added += 1;
-        await sendInvitePushByPhone(id, contact.phone);
+      if (contact.type === 'email') {
+        const result = await addGuestByHost(id, contact.value, contact.name);
+        if (result.data) {
+          added += 1;
+          const emailSent = await sendInviteEmail(id, contact.value, contact.name);
+          if (!emailSent) deliveryFailed += 1;
+          await sendInvitePush(id, contact.value);
+        } else {
+          failed += 1;
+          lastError = result.error ?? lastError;
+        }
       } else {
-        failed += 1;
-        lastError = result.error ?? lastError;
+        const result = await addGuestByHostPhone(id, contact.value, contact.name);
+        if (result.data) {
+          added += 1;
+          const smsSent = await sendInviteSms(id, contact.value, contact.name);
+          if (!smsSent) deliveryFailed += 1;
+          await sendInvitePushByPhone(id, contact.value);
+        } else {
+          failed += 1;
+          lastError = result.error ?? lastError;
+        }
       }
     }
     setAddingFromContacts(false);
@@ -450,6 +466,7 @@ export default function EventDetailScreen() {
     invalidateEvent(id);
     if (added > 0) trackGuestAdded(id, 'contacts');
     if (failed > 0) setInviteError(lastError ?? `${failed} invite${failed === 1 ? '' : 's'} could not be sent.`);
+    else if (deliveryFailed > 0) setInviteError(Copy.validation.inviteDeliveryFailed(deliveryFailed));
     toast.show(added > 0 ? Copy.toast.guestsAdded(added) : Copy.toast.noGuestsAdded);
   };
 
@@ -467,12 +484,14 @@ export default function EventDetailScreen() {
     setInviteError(null);
     const result = await addGuestByHostPhone(id, normalized, invitePhoneName.trim() || undefined);
     if (result.data) {
+      const smsSent = await sendInviteSms(id, normalized, invitePhoneName.trim() || undefined);
       await sendInvitePushByPhone(id, normalized);
       trackGuestAdded(id, 'phone');
       setInvitePhone('');
       setInvitePhoneName('');
       supabase.from('event_guests').select('*').eq('event_id', id).then(({ data }) => setGuests(data ?? []));
       invalidateEvent(id);
+      if (!smsSent) setInviteError(Copy.validation.inviteDeliveryFailed(1));
       toast.show(Copy.toast.guestAdded);
     } else {
       setInviteError(result.error ?? 'Could not add guest');
@@ -489,12 +508,14 @@ export default function EventDetailScreen() {
     setInviteError(null);
     const result = await addGuestByHost(id, inviteEmail.trim(), inviteName.trim() || undefined);
     if (result.data) {
+      const emailSent = await sendInviteEmail(id, inviteEmail.trim(), inviteName.trim() || undefined);
       await sendInvitePush(id, inviteEmail.trim());
       trackGuestAdded(id, 'email');
       setInviteEmail('');
       setInviteName('');
       supabase.from('event_guests').select('*').eq('event_id', id).then(({ data }) => setGuests(data ?? []));
       invalidateEvent(id);
+      if (!emailSent) setInviteError(Copy.validation.inviteDeliveryFailed(1));
     } else {
       setInviteError(result.error ?? 'Could not add guest');
     }
@@ -570,6 +591,7 @@ export default function EventDetailScreen() {
         title={event.title}
         subtitle={hostName ? Copy.event.hostedBy(hostName) : undefined}
         onBack={() => router.back()}
+        showBrandLogo
         height={200}
         coverImageUrl={event?.cover_image_url}
       >
@@ -862,46 +884,47 @@ export default function EventDetailScreen() {
                 <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{inviteSubmitting ? Copy.common.adding : Copy.event.addAndSendInvite}</Text>
               </AnimatedPressable>
               {!isWeb && (
+                <Text style={[styles.body, { marginBottom: spacing.sm }]}>Invite from your contacts. We will text or email them the invite.</Text>
+              )}
+              {!isWeb && (
                 <AnimatedPressable style={styles.buttonSecondary} onPress={() => { contactsPicker.openPicker(); contactsSheetRef.current?.snapToIndex(0); }} accessibilityRole="button" accessibilityLabel="Add from contacts">
                   <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.common.addFromContacts}</Text>
                 </AnimatedPressable>
               )}
-              {isWeb && (
-                <>
-                  <FloatingLabelInput
-                    label="Phone number"
-                    value={invitePhone}
-                    onChangeText={setInvitePhone}
-                    onClear={() => setInvitePhone('')}
-                    keyboardType="phone-pad"
-                    returnKeyType="next"
-                    autoComplete="tel"
-                    autoCapitalize="none"
-                    style={{ marginTop: spacing.md, marginBottom: spacing.md }}
-                  />
-                  <FloatingLabelInput
-                    label={Copy.placeholder.guestName}
-                    value={invitePhoneName}
-                    onChangeText={setInvitePhoneName}
-                    onClear={() => setInvitePhoneName('')}
-                    returnKeyType="done"
-                    autoComplete="name"
-                    autoCapitalize="words"
-                    style={{ marginBottom: spacing.md }}
-                  />
-                  <AnimatedPressable
-                    variant="primary"
-                    enableHaptics
-                    style={[styles.button, { backgroundColor: colors.primaryButton }, inviteSubmitting && styles.buttonDisabled]}
-                    onPress={handleAddGuestByPhone}
-                    disabled={inviteSubmitting}
-                    accessibilityRole="button"
-                    accessibilityLabel="Send phone invite"
-                  >
-                    <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{inviteSubmitting ? Copy.common.adding : Copy.event.addByPhoneAndSend}</Text>
-                  </AnimatedPressable>
-                </>
-              )}
+              <>
+                <FloatingLabelInput
+                  label="Phone number"
+                  value={invitePhone}
+                  onChangeText={setInvitePhone}
+                  onClear={() => setInvitePhone('')}
+                  keyboardType="phone-pad"
+                  returnKeyType="next"
+                  autoComplete="tel"
+                  autoCapitalize="none"
+                  style={{ marginTop: spacing.md, marginBottom: spacing.md }}
+                />
+                <FloatingLabelInput
+                  label={Copy.placeholder.guestName}
+                  value={invitePhoneName}
+                  onChangeText={setInvitePhoneName}
+                  onClear={() => setInvitePhoneName('')}
+                  returnKeyType="done"
+                  autoComplete="name"
+                  autoCapitalize="words"
+                  style={{ marginBottom: spacing.md }}
+                />
+                <AnimatedPressable
+                  variant="primary"
+                  enableHaptics
+                  style={[styles.button, { backgroundColor: colors.primaryButton }, inviteSubmitting && styles.buttonDisabled]}
+                  onPress={handleAddGuestByPhone}
+                  disabled={inviteSubmitting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send phone invite"
+                >
+                  <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{inviteSubmitting ? Copy.common.adding : Copy.event.addByPhoneAndSend}</Text>
+                </AnimatedPressable>
+              </>
               <AnimatedPressable style={styles.buttonSecondary} onPress={handleShareFromModal} accessibilityRole="button" accessibilityLabel="Share event">
                 <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.event.shareLinkInstead}</Text>
               </AnimatedPressable>
@@ -981,7 +1004,7 @@ export default function EventDetailScreen() {
                         accessibilityLabel={`Select ${item.name} for invite`}
                       >
                         <Text style={styles.contactRowName}>{item.name}</Text>
-                        <Text style={styles.contactRowPhone}>{item.phone}</Text>
+                        <Text style={styles.contactRowPhone}>{item.value}</Text>
                         <View style={[styles.checkbox, { borderColor: colors.border }, contactsPicker.selectedIds.has(item.id) && { backgroundColor: colors.tint }]} />
                       </Pressable>
                     )}

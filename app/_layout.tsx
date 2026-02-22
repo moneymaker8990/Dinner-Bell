@@ -121,7 +121,7 @@ function RootLayoutNav({ hasOnboarded }: { hasOnboarded: boolean }) {
     headerTintColor: colors.textPrimary,
     headerShadowVisible: false,
     contentStyle: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.background,
     },
     animation: 'slide_from_right' as const,
     animationDuration: 250,
@@ -129,7 +129,7 @@ function RootLayoutNav({ hasOnboarded }: { hasOnboarded: boolean }) {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? WarmDarkTheme : WarmLightTheme}>
-      <StatusBar style="auto" />
+      <StatusBar style="light" />
       <OfflineBanner />
       <DeepLinkHandler />
       <NotificationHandler />

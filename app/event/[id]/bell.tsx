@@ -1,5 +1,5 @@
 import { CelebrationOverlay } from '@/components/CelebrationOverlay';
-import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
+import { BrandLogo } from '@/components/BrandLogo';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
@@ -41,7 +41,7 @@ export default function BellExperienceScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.bellBox}>
-        <DinnerTriangleIcon size={100} />
+        <BrandLogo size={100} variant="primary" />
         <Text style={styles.title}>Dinner Bell!</Text>
         <Text style={[styles.subtitle, { color: colors.secondaryText }]}>Time to eat</Text>
         {message ? <Text style={styles.message}>{message}</Text> : null}

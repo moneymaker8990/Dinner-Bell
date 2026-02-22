@@ -1,4 +1,4 @@
-import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
+import { BrandLogo } from '@/components/BrandLogo';
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
@@ -35,7 +35,7 @@ export function EmptyState({
     (variant === 'events' ? (
       <FontAwesome name="calendar-o" size={64} color={colors.tint} />
     ) : (
-      <DinnerTriangleIcon size={72} color={colors.tint} />
+      <BrandLogo size={72} variant="primary" />
     ));
 
   return (

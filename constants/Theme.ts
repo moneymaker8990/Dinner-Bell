@@ -1,47 +1,89 @@
 /**
- * Design tokens: spacing, radius, elevation, typography, borders, gradients.
- * Use with Colors for a single source of truth. No raw hex here.
+ * Design tokens: theme (source of truth), spacing, radius, elevation, typography, borders.
+ * No raw hex except in theme.colors.
  */
 import { Platform, ViewStyle } from 'react-native';
 
+export const theme = {
+  colors: {
+    background: '#0F1115',
+    surface: '#161A22',
+    surface2: '#1C2230',
+    primary: '#5B7CFF',
+    primaryHover: '#6D8CFF',
+    textPrimary: '#FFFFFF',
+    textSecondary: '#A0A4AE',
+    border: '#242836',
+    danger: '#FF5C5C',
+    success: '#2FD67D',
+    accent: '#FFB020',
+    overlay: 'rgba(0,0,0,0.55)',
+  },
+  radius: {
+    sm: 10,
+    md: 14,
+    lg: 18,
+    xl: 22,
+  },
+  spacing: {
+    xs: 6,
+    sm: 10,
+    md: 14,
+    lg: 18,
+    xl: 26,
+    xxl: 34,
+  },
+  typography: {
+    title: { fontSize: 28, fontWeight: '800' as const },
+    subtitle: { fontSize: 18, fontWeight: '700' as const },
+    body: { fontSize: 16, fontWeight: '500' as const },
+    small: { fontSize: 13, fontWeight: '500' as const },
+  },
+  shadow: {
+    card: '0px 10px 30px rgba(0,0,0,0.35)',
+  },
+} as const;
+
+export type AppTheme = typeof theme;
+
 /** 4pt base grid */
 export const spacing = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
-  xxl: 32,
+  xs: theme.spacing.xs,
+  sm: theme.spacing.sm,
+  md: theme.spacing.md,
+  lg: theme.spacing.lg,
+  xl: theme.spacing.xl,
+  xxl: theme.spacing.xxl,
 } as const;
 
 /** Content max-width for web/PWA */
 export const contentMaxWidth = 640;
 
 export const radius = {
-  xs: 2,
-  sm: 4,
-  md: 6,
-  card: 18,
-  button: 15,
+  xs: theme.radius.sm,
+  sm: theme.radius.sm,
+  md: theme.radius.md,
+  card: theme.radius.lg,
+  button: theme.radius.md,
   chip: 999,
-  input: 12,
-  fab: 28,
+  input: theme.radius.md,
+  fab: theme.radius.xl + 6,
 } as const;
 
 /** Type ramp: display → micro-label with strict hierarchy */
 export const typography = {
-  display: 40,
-  title: 34,
-  headline: 22,
-  body: 16,
-  meta: 14,
-  microLabel: 12,
-  hero: 40,
-  h1: 34,
-  h2: 22,
-  h3: 18,
-  caption: 14,
-  small: 12,
+  display: theme.typography.title.fontSize + 6,
+  title: theme.typography.title.fontSize,
+  headline: theme.typography.subtitle.fontSize + 4,
+  body: theme.typography.body.fontSize,
+  meta: theme.typography.small.fontSize + 1,
+  microLabel: theme.typography.small.fontSize - 1,
+  hero: theme.typography.title.fontSize + 6,
+  h1: theme.typography.title.fontSize,
+  h2: theme.typography.subtitle.fontSize + 4,
+  h3: theme.typography.subtitle.fontSize,
+  caption: theme.typography.small.fontSize + 1,
+  small: theme.typography.small.fontSize,
 } as const;
 
 /** Optical letter-spacing for headings and CTA labels */
@@ -159,11 +201,11 @@ export const iconSize = {
 
 /** Line-height scale (absolute px, matched to typography ramp) */
 export const lineHeight = {
-  small: 20,     // microLabel / small text
-  meta: 22,      // meta / caption text
-  body: 24,      // body text
-  headline: 28,  // headline / h2 text
-  title: 42,     // title / display text
+  small: 20,
+  meta: 22,
+  body: 24,
+  headline: 28,
+  title: 42,
 } as const;
 
 /** Font-weight tokens */
@@ -197,11 +239,4 @@ export const zIndex = {
   modal: 30,
   toast: 40,
   overlay: 50,
-} as const;
-
-/** Gradient token definitions (colors from Colors; use with LinearGradient) */
-export const gradients = {
-  hero: { start: { x: 0, y: 0 }, end: { x: 1, y: 1 } },
-  cta: { start: { x: 0, y: 0 }, end: { x: 1, y: 0 } },
-  accentGlow: { start: { x: 0.5, y: 0 }, end: { x: 0.5, y: 1 } },
 } as const;

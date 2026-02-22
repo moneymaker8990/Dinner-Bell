@@ -18,7 +18,7 @@ export const Copy = {
     viewEvent: 'View event',
     addFromContacts: 'Add from contacts',
     loadingContacts: 'Loading contacts...',
-    noContactsFound: 'No contacts with phone numbers found.',
+    noContactsFound: 'No contacts with phone numbers or emails found.',
     addSelected: (count: number) => `Add selected (${count})`,
     location: 'Location',
     menu: 'Menu',
@@ -258,6 +258,8 @@ export const Copy = {
     networkError: 'Check your connection and try again.',
     duplicateGuest: 'This person has already been invited.',
     expiredInvite: 'This invite has expired or is no longer valid.',
+    inviteDeliveryFailed: (count: number) =>
+      `Invite added, but ${count === 1 ? 'delivery failed once' : `${count} deliveries failed`}. You can copy the invite link and send it manually.`,
   },
   /** Bring list */
   bringList: {
@@ -283,9 +285,9 @@ export const Copy = {
     phoneSaveFailed: 'Could not save phone number.',
     phoneSaved: 'Phone number saved. Hosts can invite you by this number.',
     phoneCleared: 'Phone number cleared.',
-    guestsAdded: (count: number) => `Added ${count} guest${count > 1 ? 's' : ''}; push sent to those who have the app.`,
+    guestsAdded: (count: number) => `Added ${count} guest${count > 1 ? 's' : ''}; email/text was sent when available (plus push for app users).`,
     noGuestsAdded: 'No guests added.',
-    guestAdded: 'Guest added; push sent if they have the app.',
+    guestAdded: 'Guest added; email/text sent when available, plus push if they have the app.',
     demoCreated: 'Demo event created! This is a local preview.',
     linkInvalid: 'Something went wrong with that link.',
   },

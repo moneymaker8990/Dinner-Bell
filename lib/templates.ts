@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { theme } from '@/constants/Theme';
 
 export interface EventTemplate {
   id: string;
@@ -18,13 +19,13 @@ export interface EventTemplate {
  * Values are design-system aligned (use with Colors for contrast).
  */
 export const THEME_ACCENT: Record<string, string> = {
-  taco_night: '#E67E22',
-  potluck: '#27AE60',
-  game_night: '#8E44AD',
-  brunch: '#F39C12',
-  dinner_party: '#C79A2B',
-  birthday: '#8E44AD',
-  holiday: '#D45A4E',
+  taco_night: theme.colors.accent,
+  potluck: theme.colors.success,
+  game_night: theme.colors.primary,
+  brunch: theme.colors.accent,
+  dinner_party: theme.colors.primary,
+  birthday: theme.colors.primaryHover,
+  holiday: theme.colors.danger,
 };
 
 export async function fetchTemplates(): Promise<EventTemplate[]> {

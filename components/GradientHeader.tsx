@@ -1,9 +1,9 @@
+import { BrandLogo } from '@/components/BrandLogo';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { fontFamily, fontWeight, gradients, letterSpacing, spacing, typography } from '@/constants/Theme';
+import { fontFamily, fontWeight, letterSpacing, spacing, typography } from '@/constants/Theme';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -14,15 +14,17 @@ interface GradientHeaderProps {
   children?: React.ReactNode;
   /** Height of the header. Defaults to 220. */
   height?: number;
-  /** Custom gradient colors [start, end]. Falls back to theme gradient tokens. */
+  /** Backward compatibility prop (unused in Night Mode). */
   colors?: [string, string];
   /** Optional cover image URL — displayed behind a dark overlay when provided */
   coverImageUrl?: string | null;
+  /** Optional compact brand mark for premium header contexts */
+  showBrandLogo?: boolean;
 }
 
 /**
- * Premium hero header with linear gradient background, title/subtitle slots,
- * and optional back button. Uses gradient tokens from Colors.ts.
+ * Premium hero header with solid dark background, title/subtitle slots,
+ * and optional back button.
  */
 export function GradientHeader({
   title,
@@ -30,15 +32,15 @@ export function GradientHeader({
   onBack,
   children,
   height = 220,
-  colors: customColors,
+  colors: _customColors,
   coverImageUrl,
+  showBrandLogo = false,
 }: GradientHeaderProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
-  const gradientColors = customColors ?? [c.gradientStart, c.gradientEnd];
 
   return (
-    <View style={[styles.outerContainer, { height }]}>
+    <View style={[styles.outerContainer, { height, backgroundColor: c.background, borderBottomColor: c.border }]}>
       {coverImageUrl ? (
         <>
           <Image
@@ -48,15 +50,10 @@ export function GradientHeader({
             cachePolicy="memory-disk"
             style={StyleSheet.absoluteFill}
           />
-          <View style={[StyleSheet.absoluteFill, styles.imageOverlay]} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: c.overlay }]} />
         </>
       ) : (
-        <LinearGradient
-          colors={gradientColors}
-          start={gradients.hero.start}
-          end={gradients.hero.end}
-          style={StyleSheet.absoluteFill}
-        />
+        <View style={StyleSheet.absoluteFill} />
       )}
       {onBack && (
         <Pressable
@@ -66,14 +63,19 @@ export function GradientHeader({
           accessibilityLabel="Go back"
           hitSlop={12}
         >
-          <Ionicons name="chevron-back" size={24} color={c.onGradient} />
+          <Ionicons name="chevron-back" size={24} color={c.textPrimary} />
         </Pressable>
+      )}
+      {showBrandLogo && (
+        <View style={[styles.logoWrap, onBack ? styles.logoWrapWithBack : null]}>
+          <BrandLogo size={26} variant="default" />
+        </View>
       )}
       <View style={styles.content}>
         {children}
         {title && (
           <Text
-            style={[styles.title, { color: c.onGradient }]}
+            style={[styles.title, { color: c.textPrimary }]}
             accessibilityRole="header"
             numberOfLines={2}
           >
@@ -81,7 +83,7 @@ export function GradientHeader({
           </Text>
         )}
         {subtitle && (
-          <Text style={[styles.subtitle, { color: c.onGradientMuted }]} numberOfLines={2}>
+          <Text style={[styles.subtitle, { color: c.textSecondary }]} numberOfLines={2}>
             {subtitle}
           </Text>
         )}
@@ -89,6 +91,8 @@ export function GradientHeader({
     </View>
   );
 }
+
+export const Header = GradientHeader;
 
 const styles = StyleSheet.create({
   outerContainer: {
@@ -98,9 +102,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: Platform.OS === 'ios' ? 56 : 40,
     overflow: 'hidden',
-  },
-  imageOverlay: {
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderBottomWidth: 1,
   },
   backButton: {
     position: 'absolute',
@@ -109,13 +111,22 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.2)',
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
   },
   content: {
     gap: spacing.xs,
+  },
+  logoWrap: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 62 : 46,
+    left: spacing.xl,
+    zIndex: 9,
+  },
+  logoWrapWithBack: {
+    left: spacing.xl + 38,
   },
   title: {
     fontFamily: fontFamily.display,

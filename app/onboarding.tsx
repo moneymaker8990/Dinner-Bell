@@ -1,12 +1,11 @@
 import { AnimatedPressable } from '@/components/AnimatedPressable';
-import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
+import { BrandLogo } from '@/components/BrandLogo';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { fontFamily, fontWeight, gradients, letterSpacing, lineHeight, radius, spacing, typography } from '@/constants/Theme';
+import { fontFamily, fontWeight, letterSpacing, lineHeight, radius, spacing, typography } from '@/constants/Theme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import {
@@ -118,18 +117,13 @@ export default function OnboardingScreen() {
   );
 
   return (
-    <LinearGradient
-      colors={[c.gradientStartFaint, c.background]}
-      start={gradients.accentGlow.start}
-      end={gradients.accentGlow.end}
-      style={[styles.container, { backgroundColor: c.background }]}
-    >
+    <View style={[styles.container, { backgroundColor: c.background }]}>
       {/* Logo */}
       <Animated.View
         entering={reduceMotion ? undefined : FadeIn.duration(600)}
         style={styles.logoArea}
       >
-        <DinnerTriangleIcon size={48} />
+        <BrandLogo size={48} variant="primary" showWordmark />
       </Animated.View>
 
       {/* Slides */}
@@ -190,7 +184,7 @@ export default function OnboardingScreen() {
           </Text>
         </AnimatedPressable>
       </View>
-    </LinearGradient>
+    </View>
   );
 }
 

@@ -1,7 +1,7 @@
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { letterSpacing, spacing, typography } from '@/constants/Theme';
+import { letterSpacing, radius, spacing, typography } from '@/constants/Theme';
 import { StyleSheet, ViewStyle } from 'react-native';
 
 interface SectionProps {
@@ -19,7 +19,7 @@ export function Section({ title, action, children, style, collapsible, collapsed
   const colors = Colors[colorScheme];
 
   return (
-    <View style={[styles.section, style]}>
+    <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }, style]}>
       <View style={styles.header}>
         <Text
           style={[styles.title, { color: colors.textSecondary }]}
@@ -38,6 +38,9 @@ export function Section({ title, action, children, style, collapsible, collapsed
 const styles = StyleSheet.create({
   section: {
     marginBottom: spacing.xl,
+    borderWidth: 1,
+    borderRadius: radius.card,
+    padding: spacing.lg,
   },
   header: {
     flexDirection: 'row',

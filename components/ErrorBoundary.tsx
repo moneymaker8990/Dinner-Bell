@@ -1,4 +1,4 @@
-import { DinnerTriangleIcon } from '@/components/DinnerTriangleIcon';
+import { BrandLogo } from '@/components/BrandLogo';
 import Colors from '@/constants/Colors';
 import { elevation, fontWeight, lineHeight, radius, spacing, typography } from '@/constants/Theme';
 import { trackError } from '@/lib/analytics';
@@ -17,7 +17,7 @@ interface State {
 }
 
 /**
- * Custom error boundary with themed UI, DinnerTriangleIcon,
+ * Custom error boundary with themed UI and BrandLogo,
  * friendly message, and "Try again" button.
  * Logs errors to analytics via trackError.
  */
@@ -55,7 +55,7 @@ export class AppErrorBoundary extends Component<Props, State> {
 
       return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
-          <DinnerTriangleIcon size={80} color={colors.primaryBrand} />
+          <BrandLogo size={80} variant="primary" />
           <Text style={[styles.title, { color: colors.textPrimary }]}>
             Something went wrong
           </Text>

@@ -1,3 +1,4 @@
+import { BrandLogo } from '@/components/BrandLogo';
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
@@ -8,7 +9,7 @@ import { triggerBellPush } from '@/lib/triggerBell';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 const COOLDOWN_MS = 30000;
 const STORAGE_KEY = (eid: string) => `last_bell_ring_${eid}`;
@@ -64,29 +65,38 @@ export function RingBellButton({ eventId, bellSound }: RingBellButtonProps) {
     <Pressable
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: cooldownActive ? colors.border : colors.primaryButton },
-        pressed && !cooldownActive && styles.buttonPressed,
+        { backgroundColor: cooldownActive ? colors.surface : colors.primaryButton, borderColor: colors.border },
+        pressed && !cooldownActive ? { backgroundColor: colors.pressed } : null,
       ]}
       onPress={handleRing}
       disabled={cooldownActive}
       accessibilityRole="button"
       accessibilityLabel={cooldownActive ? `Ring again in ${cooldownSec} seconds` : 'Ring dinner bell'}
     >
-      <Text style={[styles.buttonText, { color: cooldownActive ? colors.textSecondary : colors.primaryButtonText }]}>
-        {cooldownActive ? `Ring again in ${cooldownSec}s` : 'Ring Dinner Bell'}
-      </Text>
+      <View style={styles.contentRow}>
+        <BrandLogo size={20} variant={cooldownActive ? 'muted' : 'primary'} />
+        <Text style={[styles.buttonText, { color: cooldownActive ? colors.textSecondary : colors.primaryButtonText }]}>
+          {cooldownActive ? `Ring again in ${cooldownSec}s` : 'Ring Dinner Bell'}
+        </Text>
+      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
+    minHeight: 54,
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.xl,
-    borderRadius: radius.input,
+    borderRadius: radius.button,
+    borderWidth: 1,
     alignItems: 'center',
     marginBottom: spacing.lg,
   },
-  buttonPressed: { opacity: 0.9 },
   buttonText: { fontSize: typography.h3, fontWeight: '600' },
+  contentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
 });
