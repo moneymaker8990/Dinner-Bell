@@ -52,6 +52,7 @@ A cross-platform (iOS, Android, PWA) social hosting app for dinner invites: menu
 
 - `docs/release-checklist.md` — final QA and release verification.
 - `docs/app-store-play-submission.md` — App Store Connect and Play Console submission steps.
+- `docs/positioning-and-gaps.md` — product positioning summary, gaps, and differentiation vs Partiful.
 
 ## Definition of done
 
