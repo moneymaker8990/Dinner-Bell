@@ -176,9 +176,9 @@ export default function HomeScreen() {
           ) : undefined
         }
       >
-        {/* Premium gradient hero */}
+        {/* Premium gradient hero — extra top padding so the bell icon is not cut off */}
         <GradientHeader height={260}>
-          <View style={styles.heroInner}>
+          <View style={[styles.heroInner, styles.heroInnerTopPadding]}>
             <View style={styles.heroIconGlow}>
               <BrandLogo size={72} variant="default" />
             </View>
@@ -329,6 +329,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     backgroundColor: 'transparent',
     paddingTop: spacing.sm,
+  },
+  heroInnerTopPadding: {
+    paddingTop: spacing.xl,
   },
   heroIconGlow: {
     backgroundColor: 'rgba(255,255,255,0.15)',

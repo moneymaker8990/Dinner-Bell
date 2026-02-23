@@ -26,7 +26,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import * as ImagePicker from 'expo-image-picker';
 import { type Href, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch } from 'react-native';
 import Animated, { FadeInDown, runOnJS, useAnimatedReaction, useSharedValue, withTiming } from 'react-native-reanimated';
 
 function initialsFromEmail(email: string | undefined): string {
@@ -91,18 +91,41 @@ export default function ProfileScreen() {
   const [profilePhone, setProfilePhone] = useState('');
   const [profilePhoneSaving, setProfilePhoneSaving] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [showEmailForm, setShowEmailForm] = useState(false);
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [accountSaving, setAccountSaving] = useState(false);
+  const privacyPolicyUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL ?? 'https://dinner-bell-app.vercel.app/privacy';
+  const termsUrl = process.env.EXPO_PUBLIC_TERMS_URL ?? 'https://dinner-bell-app.vercel.app/terms';
+  const supportUrl = process.env.EXPO_PUBLIC_SUPPORT_URL ?? 'mailto:support@dinnerbell.app';
 
   useEffect(() => {
     if (!user) return;
     const fetchProfile = async () => {
-      const { data } = await supabase.from('profiles').select('phone').eq('id', user.id).single();
+      const { data } = await supabase.from('profiles').select('phone, avatar_url').eq('id', user.id).single();
       setProfilePhone((data as { phone?: string } | null)?.phone ?? '');
+      setAvatarUri((data as { avatar_url?: string | null } | null)?.avatar_url ?? null);
     };
     fetchProfile();
   }, [user?.id]);
 
+  const openExternalLink = async (url: string) => {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        toast.show(Copy.toast.linkOpenFailed);
+        return;
+      }
+      await Linking.openURL(url);
+    } catch {
+      toast.show(Copy.toast.linkOpenFailed);
+    }
+  };
 
   const pickImage = async () => {
+    if (!user || avatarUploading) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -110,10 +133,39 @@ export default function ProfileScreen() {
       quality: 0.8,
     });
     if (!result.canceled && result.assets[0]) {
-      setAvatarUri(result.assets[0].uri);
-      // TODO: Upload to Supabase Storage when bucket is configured
-      // const { data } = await supabase.storage.from('avatars').upload(...)
-      // await supabase.from('profiles').update({ avatar_url: data.path })
+      const image = result.assets[0];
+      const extension = image.fileName?.split('.').pop()?.toLowerCase() ?? 'jpg';
+      const filePath = `${user.id}/avatar.${extension}`;
+      const previousAvatarUri = avatarUri;
+      setAvatarUploading(true);
+
+      try {
+        setAvatarUri(image.uri);
+        const response = await fetch(image.uri);
+        const blob = await response.blob();
+        const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, blob, {
+          contentType: image.mimeType ?? 'image/jpeg',
+          upsert: true,
+        });
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+        const nextAvatarUrl = publicUrlData.publicUrl;
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ avatar_url: nextAvatarUrl, updated_at: new Date().toISOString() })
+          .eq('id', user.id);
+        if (updateError) throw updateError;
+
+        setAvatarUri(nextAvatarUrl);
+        trackProfileUpdated('avatar');
+        toast.show(Copy.toast.profilePhotoUpdated);
+      } catch {
+        setAvatarUri(previousAvatarUri);
+        toast.show(Copy.toast.profilePhotoUpdateFailed);
+      } finally {
+        setAvatarUploading(false);
+      }
     }
   };
 
@@ -156,6 +208,47 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleUpdateEmail = async () => {
+    if (!user || accountSaving) return;
+    const trimmedEmail = newEmail.trim().toLowerCase();
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
+      toast.show(Copy.auth.invalidEmailFormat);
+      return;
+    }
+
+    setAccountSaving(true);
+    const { error } = await supabase.auth.updateUser({ email: trimmedEmail });
+    setAccountSaving(false);
+    if (error) {
+      toast.show(Copy.toast.accountUpdateFailed);
+      return;
+    }
+    trackProfileUpdated('email');
+    setNewEmail('');
+    setShowEmailForm(false);
+    toast.show(Copy.toast.emailUpdateSent);
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!user || accountSaving) return;
+    if (!newPassword || newPassword.length < 6) {
+      toast.show(Copy.auth.passwordTooShort);
+      return;
+    }
+
+    setAccountSaving(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setAccountSaving(false);
+    if (error) {
+      toast.show(Copy.toast.accountUpdateFailed);
+      return;
+    }
+    trackProfileUpdated('password');
+    setNewPassword('');
+    setShowPasswordForm(false);
+    toast.show(Copy.toast.passwordUpdated);
+  };
+
 
   const subtitle = isSignedIn
     ? `${user?.email ?? 'Signed in'}`
@@ -176,7 +269,13 @@ export default function ProfileScreen() {
             <Card style={styles.heroCard}>
               <CardBody>
                 <View style={styles.heroRow}>
-                  <Pressable onPress={pickImage} style={styles.avatarWrapper} accessibilityLabel="Change profile photo" accessibilityRole="button">
+                  <Pressable
+                    onPress={pickImage}
+                    style={styles.avatarWrapper}
+                    accessibilityLabel={avatarUploading ? 'Uploading profile photo' : 'Change profile photo'}
+                    accessibilityRole="button"
+                    disabled={avatarUploading}
+                  >
                     {avatarUri ? (
                       <OptimizedImage
                         source={avatarUri}
@@ -350,6 +449,36 @@ export default function ProfileScreen() {
               </CardBody>
             </Card>
 
+            {/* Legal and support */}
+            <Card style={styles.settingsCard}>
+              <CardHeader title={Copy.profile.legalSupport} />
+              <CardBody style={styles.cardBodyNoTopPadding}>
+                <SettingsRow
+                  title={Copy.profile.privacyPolicy}
+                  subtitle={Copy.profile.privacyPolicyDesc}
+                  icon={<FontAwesome name="shield" size={16} color={colors.tint} />}
+                  right={<Text style={[styles.settingLink, { color: colors.tint }]}>View</Text>}
+                  onPress={() => openExternalLink(privacyPolicyUrl)}
+                />
+                <Divider />
+                <SettingsRow
+                  title={Copy.profile.termsOfService}
+                  subtitle={Copy.profile.termsOfServiceDesc}
+                  icon={<FontAwesome name="file-text-o" size={16} color={colors.tint} />}
+                  right={<Text style={[styles.settingLink, { color: colors.tint }]}>View</Text>}
+                  onPress={() => openExternalLink(termsUrl)}
+                />
+                <Divider />
+                <SettingsRow
+                  title={Copy.profile.contactSupport}
+                  subtitle={Copy.profile.contactSupportDesc}
+                  icon={<FontAwesome name="life-ring" size={16} color={colors.tint} />}
+                  right={<Text style={[styles.settingLink, { color: colors.tint }]}>Email</Text>}
+                  onPress={() => openExternalLink(supportUrl)}
+                />
+              </CardBody>
+            </Card>
+
             {/* Account */}
             <Card style={styles.settingsCard}>
               <CardHeader title={Copy.profile.account} />
@@ -375,15 +504,55 @@ export default function ProfileScreen() {
                   title={Copy.profile.changeEmail}
                   subtitle={Copy.profile.changeEmailDesc}
                   icon={<FontAwesome name="envelope-o" size={16} color={colors.textSecondary} />}
-                  right={<StatPill label={Copy.profile.soon} />}
+                  right={<Text style={[styles.settingLink, { color: colors.tint }]}>{showEmailForm ? Copy.common.close : Copy.profile.update}</Text>}
+                  onPress={() => setShowEmailForm((prev) => !prev)}
                 />
+                {showEmailForm ? (
+                  <View style={styles.accountInlineForm}>
+                    <FloatingLabelInput
+                      label={Copy.profile.newEmail}
+                      value={newEmail}
+                      onChangeText={setNewEmail}
+                      onClear={() => setNewEmail('')}
+                      autoCapitalize="none"
+                      autoComplete="email"
+                      keyboardType="email-address"
+                      returnKeyType="done"
+                      editable={!accountSaving}
+                      style={{ marginBottom: spacing.sm }}
+                    />
+                    <PrimaryButton onPress={handleUpdateEmail} disabled={accountSaving}>
+                      {accountSaving ? Copy.common.saving : Copy.profile.update}
+                    </PrimaryButton>
+                  </View>
+                ) : null}
                 <Divider />
                 <SettingsRow
                   title={Copy.profile.changePassword}
                   subtitle={Copy.profile.changePasswordDesc}
                   icon={<FontAwesome name="lock" size={16} color={colors.textSecondary} />}
-                  right={<StatPill label={Copy.profile.soon} />}
+                  right={<Text style={[styles.settingLink, { color: colors.tint }]}>{showPasswordForm ? Copy.common.close : Copy.profile.update}</Text>}
+                  onPress={() => setShowPasswordForm((prev) => !prev)}
                 />
+                {showPasswordForm ? (
+                  <View style={styles.accountInlineForm}>
+                    <FloatingLabelInput
+                      label={Copy.profile.newPassword}
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      onClear={() => setNewPassword('')}
+                      autoCapitalize="none"
+                      autoComplete="password-new"
+                      secureTextEntry
+                      returnKeyType="done"
+                      editable={!accountSaving}
+                      style={{ marginBottom: spacing.sm }}
+                    />
+                    <PrimaryButton onPress={handleUpdatePassword} disabled={accountSaving}>
+                      {accountSaving ? Copy.common.saving : Copy.profile.update}
+                    </PrimaryButton>
+                  </View>
+                ) : null}
                 <Divider />
                 <View style={styles.signOutWrap}>
                   <GhostButton
@@ -556,5 +725,9 @@ const styles = StyleSheet.create({
   phoneHint: {
     fontSize: typography.small,
     marginBottom: spacing.md,
+  },
+  accountInlineForm: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
   },
 });

@@ -882,3 +882,69 @@ BEGIN
 END;
 $$;
 GRANT EXECUTE ON FUNCTION public.create_event(TEXT, TEXT, TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, INT, TEXT, BOOLEAN) TO authenticated;
+
+-- ========== 020_fix_event_co_hosts_rls_recursion.sql ==========
+CREATE OR REPLACE FUNCTION public.can_view_event_co_hosts(p_event_id UUID, p_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.events WHERE id = p_event_id AND host_user_id = p_user_id)
+     OR EXISTS (SELECT 1 FROM public.event_guests WHERE event_id = p_event_id AND user_id = p_user_id);
+$$;
+
+GRANT EXECUTE ON FUNCTION public.can_view_event_co_hosts(UUID, UUID) TO anon, authenticated;
+
+DROP POLICY IF EXISTS "Guests can view co_hosts for their events" ON public.event_co_hosts;
+CREATE POLICY "Guests can view co_hosts for their events" ON public.event_co_hosts
+  FOR SELECT USING (public.can_view_event_co_hosts(event_id, auth.uid()));
+
+-- ========== 021_add_avatar_storage_bucket.sql ==========
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO UPDATE
+SET public = true;
+
+DROP POLICY IF EXISTS "Avatar images are publicly readable" ON storage.objects;
+CREATE POLICY "Avatar images are publicly readable"
+ON storage.objects
+FOR SELECT
+USING (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "Users can upload their own avatar" ON storage.objects;
+CREATE POLICY "Users can upload their own avatar"
+ON storage.objects
+FOR INSERT
+WITH CHECK (
+  bucket_id = 'avatars'
+  AND auth.uid()::text = split_part(name, '/', 1)
+);
+
+DROP POLICY IF EXISTS "Users can update their own avatar" ON storage.objects;
+CREATE POLICY "Users can update their own avatar"
+ON storage.objects
+FOR UPDATE
+USING (
+  bucket_id = 'avatars'
+  AND auth.uid()::text = split_part(name, '/', 1)
+)
+WITH CHECK (
+  bucket_id = 'avatars'
+  AND auth.uid()::text = split_part(name, '/', 1)
+);
+
+DROP POLICY IF EXISTS "Users can delete their own avatar" ON storage.objects;
+CREATE POLICY "Users can delete their own avatar"
+ON storage.objects
+FOR DELETE
+USING (
+  bucket_id = 'avatars'
+  AND auth.uid()::text = split_part(name, '/', 1)
+);
+
+-- ========== 022_add_public_events_select_policy.sql ==========
+DROP POLICY IF EXISTS "Anyone can view public events" ON public.events;
+CREATE POLICY "Anyone can view public events" ON public.events
+  FOR SELECT
+  USING (is_public = true AND is_cancelled = false);

@@ -22,12 +22,12 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "",
-        "ascAppId": "",
-        "appleTeamId": ""
+        "appleId": "YOUR_APPLE_ID@example.com",
+        "ascAppId": "1234567890",
+        "appleTeamId": "ABCDE12345"
       },
       "android": {
-        "serviceAccountKeyPath": ""
+        "serviceAccountKeyPath": "./keys/google-play-service-account.json"
       }
     }
   }

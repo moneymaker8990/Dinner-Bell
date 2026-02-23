@@ -50,6 +50,27 @@ export interface AnalyticsProperties {
   [key: string]: string | number | boolean | undefined;
 }
 
+const analyticsEndpoint = process.env.EXPO_PUBLIC_ANALYTICS_ENDPOINT?.trim();
+
+function forwardToEndpoint(event: AnalyticsEvent, properties: AnalyticsProperties): void {
+  if (!analyticsEndpoint) return;
+
+  void fetch(analyticsEndpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      event,
+      properties,
+    }),
+  }).catch(() => {
+    if (__DEV__) {
+      console.warn(`[Analytics] Failed to POST ${event}`);
+    }
+  });
+}
+
 /** Core analytics tracker. Swap implementation for your provider. */
 function log(event: AnalyticsEvent, properties?: AnalyticsProperties): void {
   const enriched: AnalyticsProperties = {
@@ -62,9 +83,8 @@ function log(event: AnalyticsEvent, properties?: AnalyticsProperties): void {
     console.log(`[Analytics] ${event}`, enriched);
   }
 
-  // TODO: Replace with real analytics provider call
-  // e.g. Amplitude.logEvent(event, enriched);
-  // e.g. posthog.capture(event, enriched);
+  // Launch-safe integration point: set EXPO_PUBLIC_ANALYTICS_ENDPOINT to forward events.
+  forwardToEndpoint(event, enriched);
 }
 
 // --- Funnel events ---

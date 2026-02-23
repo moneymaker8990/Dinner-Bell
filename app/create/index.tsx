@@ -645,7 +645,7 @@ export default function CreateDinnerScreen() {
 
       {step === 0 && (
         <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
-          <View>
+          <View style={styles.stepContentWrap}>
           {templates.length > 0 && (
             <>
               <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>{Copy.create.startFromTemplate}</Text>
@@ -767,6 +767,7 @@ export default function CreateDinnerScreen() {
 
       {step === 1 && (
         <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
+          <View style={styles.stepContentWrap}>
           <FloatingLabelInput
             label="Street address"
             value={form.addressLine1}
@@ -838,11 +839,13 @@ export default function CreateDinnerScreen() {
             accessibilityLabel="Copy address to clipboard">
             <Text style={styles.buttonSecondaryText}>{Copy.create.copyAddress}</Text>
           </Pressable>
+          </View>
         </Animated.View>
       )}
 
       {step === 2 && (
         <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
+          <View style={styles.stepContentWrap}>
           {form.menuSections.map((sec, si) => (
             <View key={sec.id} style={styles.section}>
               <FloatingLabelInput
@@ -910,11 +913,13 @@ export default function CreateDinnerScreen() {
             accessibilityLabel="Add menu section">
             <Text style={[styles.link, { color: colors.tint }]}>+ Add section</Text>
           </Pressable>
+          </View>
         </Animated.View>
       )}
 
       {step === 3 && (
         <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
+          <View style={styles.stepContentWrap}>
           <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>{Copy.create.quickAdd}</Text>
           <View style={styles.quickAddRow}>
             {[
@@ -1030,11 +1035,13 @@ export default function CreateDinnerScreen() {
           >
             <Text style={[styles.link, { color: colors.tint }]}>{Copy.event.addBringItem}</Text>
           </Pressable>
+          </View>
         </Animated.View>
       )}
 
       {step === 4 && (
         <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
+          <View style={styles.stepContentWrap}>
           <FloatingLabelInput
             label={Copy.placeholder.noteToGuests}
             value={form.noteToGuests}
@@ -1093,11 +1100,13 @@ export default function CreateDinnerScreen() {
             style={{ marginBottom: spacing.lg, minHeight: 80 }}
           />
           <Text style={styles.hint}>{Copy.create.shareInviteAfter}</Text>
+          </View>
         </Animated.View>
       )}
 
       {step === 5 && (
         <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
+          <View style={styles.stepContentWrap}>
           <View style={styles.summary}>
             <Text style={[styles.almostThere, { color: colors.secondaryText }]}>{Copy.create.almostThere}</Text>
             <View style={[styles.summaryCard, { backgroundColor: colors.card }]}>
@@ -1115,6 +1124,7 @@ export default function CreateDinnerScreen() {
                 Bring items: {form.bringItems.length}
               </Text>
             </View>
+          </View>
           </View>
         </Animated.View>
       )}
@@ -1221,7 +1231,9 @@ export default function CreateDinnerScreen() {
       </View>
       {draftSavedLabel && (
         <Animated.View entering={FadeInDown.duration(200)}>
-          <Text style={[styles.draftSavedText, { color: colors.secondaryText }]}>Draft saved</Text>
+          <View>
+            <Text style={[styles.draftSavedText, { color: colors.secondaryText }]}>Draft saved</Text>
+          </View>
         </Animated.View>
       )}
     </KeyboardAwareScrollView>
@@ -1272,6 +1284,7 @@ const styles = StyleSheet.create({
   successSecondary: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
   successSecondaryText: { fontSize: typography.body, fontWeight: '600' },
   stepTitle: { fontSize: typography.headline, fontWeight: '600', marginBottom: spacing.lg },
+  stepContentWrap: {},
   label: { fontSize: typography.meta, fontWeight: '500', marginBottom: spacing.xs + 2 },
   input: {
     borderWidth: 1,

@@ -48,6 +48,11 @@ A cross-platform (iOS, Android, PWA) social hosting app for dinner invites: menu
 - `dinnerbell://event/<eventId>` — open event detail
 - `dinnerbell://event/<eventId>/bell` — open bell experience
 
+## Release docs
+
+- `docs/release-checklist.md` — final QA and release verification.
+- `docs/app-store-play-submission.md` — App Store Connect and Play Console submission steps.
+
 ## Definition of done
 
 - Host can create event (title, time, bell, location, menu, bring list, schedule blocks) and invite via link.

@@ -63,6 +63,8 @@ You can do this in one of two ways: **Dashboard (SQL Editor)** or **Supabase CLI
    | 18 | `supabase/migrations/018_create_event_rpc.sql` |
    | 19 | `supabase/migrations/019_fix_create_event_token_fallback.sql` |
    | 20 | `supabase/migrations/020_fix_event_co_hosts_rls_recursion.sql` |
+   | 21 | `supabase/migrations/021_add_avatar_storage_bucket.sql` |
+   | 22 | `supabase/migrations/022_add_public_events_select_policy.sql` |
 
    **Alternative:** For a fresh project you can run the entire `supabase/run-all-migrations.sql` file once in the SQL Editor (it includes all of the above).
 
@@ -209,7 +211,7 @@ You can do this after the app is working for create/RSVP/bring list.
 
 - [ ] Supabase project created
 - [ ] Project URL and anon key copied
-- [ ] All migrations run through `supabase/migrations/020_fix_event_co_hosts_rls_recursion.sql` (Dashboard SQL or `supabase db push`)
+- [ ] All migrations run through `supabase/migrations/022_add_public_events_select_policy.sql` (Dashboard SQL or `supabase db push`)
 - [ ] `.env` created with `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`
 - [ ] Expo restarted; app loads and can create an event
 - [ ] (Optional) Edge Functions deployed and cron set for notifications

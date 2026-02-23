@@ -1,5 +1,14 @@
 # Release Checklist
 
+## Build & Submission
+
+- [ ] `eas build --platform ios --profile production` succeeds
+- [ ] `eas build --platform android --profile production` succeeds
+- [ ] `eas submit --platform ios --profile production` succeeds (or manual upload)
+- [ ] `eas submit --platform android --profile production` succeeds (or manual upload)
+- [ ] App Store Connect metadata complete (description, keywords, screenshots, privacy)
+- [ ] Google Play listing complete (description, graphics, data safety, content rating)
+
 ## Smoke Tests (by role)
 
 ### Host (signed-in)
