@@ -39,24 +39,24 @@ function getSlides(colors: typeof Colors['light']): OnboardingSlide[] {
       icon: 'notifications-outline',
       iconColor: colors.brandGold,
       iconBgColor: colors.brandGoldFaint,
-      title: 'Ring the bell',
-      body: 'Gather your people for dinner. One tap sends the signal — dinner is ready.',
+      title: 'Plan dinner first',
+      body: 'Create dinner details in seconds, then invite your people.',
     },
     {
       id: '2',
       icon: 'people-outline',
       iconColor: colors.brandSage,
       iconBgColor: colors.brandSageFaint,
-      title: 'Plan together',
-      body: 'Menu, bring list, and RSVP — everything your guests need in one place.',
+      title: 'Get everyone aligned',
+      body: 'Menu, bring list, and RSVP stay in one shared place before dinner starts.',
     },
     {
       id: '3',
       icon: 'restaurant-outline',
       iconColor: colors.brandAmber,
       iconBgColor: colors.brandAmberFaint,
-      title: 'Time to eat',
-      body: 'Ring the bell when dinner is ready. Everyone gets notified instantly.',
+      title: 'Ring when it is ready',
+      body: 'One bell sends the dinner-ready moment to everyone instantly.',
     },
   ];
 }
@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
   iconCircle: {
     width: 120,
     height: 120,
-    borderRadius: 60,
+    borderRadius: radius.chip,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.xxl,
@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
   },
   dot: {
     height: 8,
-    borderRadius: 4,
+    borderRadius: radius.chip,
   },
   footer: {
     flexDirection: 'row',

@@ -128,6 +128,11 @@ export default function DiscoverScreen() {
             ))}
           </View>
         )}
+        {!loading && !error && events.length === 0 ? (
+          <Text style={[styles.hostHint, { color: colors.textSecondary }]}>
+            {Copy.discover.hostHint}
+          </Text>
+        ) : null}
       </ScrollView>
     </AppShell>
   );
@@ -166,5 +171,11 @@ const styles = StyleSheet.create({
   },
   retryBtn: {
     marginTop: spacing.md,
+  },
+  hostHint: {
+    fontSize: typography.meta,
+    textAlign: 'center',
+    marginTop: spacing.lg,
+    marginHorizontal: spacing.lg,
   },
 });

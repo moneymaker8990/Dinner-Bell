@@ -6,6 +6,7 @@
 - [ ] `eas build --platform android --profile production` succeeds
 - [ ] `eas submit --platform ios --profile production` succeeds (or manual upload)
 - [ ] `eas submit --platform android --profile production` succeeds (or manual upload)
+- [ ] EAS production env values set (`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_APP_URL`, legal URLs)
 - [ ] App Store Connect metadata complete (description, keywords, screenshots, privacy)
 - [ ] Google Play listing complete (description, graphics, data safety, content rating)
 
@@ -78,8 +79,10 @@
 - [ ] Privacy policy link accessible
 - [ ] Terms of service link accessible
 - [ ] Contact support surface exists
+- [ ] App Privacy/Data Safety answers validated against `docs/PRIVACY_DATA_DISCLOSURE_MAP.md`
+- [ ] Reviewer account instructions prepared in `docs/REVIEWER_APP_ACCESS.md`
 
 ## Feature Flags / Staged Rollout
 - [ ] Premium features gated behind `PremiumGate`
 - [ ] Free users have full core utility
-- [ ] Rollback criteria documented
+- [ ] Rollback criteria documented (`docs/ROLLBACK_CRITERIA.md`)

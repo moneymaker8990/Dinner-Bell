@@ -47,16 +47,19 @@ export default function GroupDetailScreen() {
   }, [load]);
 
   useLayoutEffect(() => {
-    navigation.setOptions({ title: groupName ?? 'Group' });
+    navigation.setOptions({ title: groupName ?? Copy.groups.fallbackGroupTitle });
   }, [groupName, navigation]);
 
   const handleDelete = () => {
     if (!id) return;
-    Alert.alert('Delete group', 'Remove this group? Members are not removed from any events.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
+    Alert.alert(Copy.groups.deleteGroupTitle, Copy.groups.deleteGroupBody, [
+      { text: Copy.common.cancel, style: 'cancel' },
+      { text: Copy.groups.delete, style: 'destructive', onPress: async () => {
         const ok = await deleteGroup(id);
-        if (ok) router.replace('/groups' as Href);
+        if (ok) {
+          trackGroupDeleted(id);
+          router.replace('/groups' as Href);
+        }
       } },
     ]);
   };
@@ -67,6 +70,7 @@ export default function GroupDetailScreen() {
     const ok = await addMemberToGroup(id, contactType, contactValue.trim(), displayName.trim() || undefined);
     setAdding(false);
     if (ok) {
+      trackGroupMemberAdded(id);
       setContactValue('');
       setDisplayName('');
       load();
@@ -78,7 +82,7 @@ export default function GroupDetailScreen() {
     load();
   };
 
-  if (!id) return <Text style={[styles.centered, { color: colors.textSecondary }]}>Invalid group</Text>;
+  if (!id) return <Text style={[styles.centered, { color: colors.textSecondary }]}>{Copy.groups.invalidGroup}</Text>;
   if (loading) {
     return (
       <View style={styles.skeletonWrap}>
@@ -97,18 +101,28 @@ export default function GroupDetailScreen() {
 
   return (
     <KeyboardAwareScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.sectionTitle}>Add member</Text>
-      <Text style={styles.label}>Contact type</Text>
+      <Text style={styles.sectionTitle}>{Copy.groups.addMember}</Text>
+      <Text style={styles.label}>{Copy.groups.contactType}</Text>
       <View style={styles.row}>
-        <Pressable style={[styles.chip, contactType === 'email' && { backgroundColor: colors.primaryButton }]} onPress={() => setContactType('email')}>
-          <Text style={[styles.chipText, contactType === 'email' && { color: colors.primaryButtonText }]}>Email</Text>
+        <Pressable
+          style={[styles.chip, contactType === 'email' && { backgroundColor: colors.primaryButton }]}
+          onPress={() => setContactType('email')}
+          accessibilityRole="button"
+          accessibilityLabel={Copy.groups.email}
+        >
+          <Text style={[styles.chipText, contactType === 'email' && { color: colors.primaryButtonText }]}>{Copy.groups.email}</Text>
         </Pressable>
-        <Pressable style={[styles.chip, contactType === 'phone' && { backgroundColor: colors.primaryButton }]} onPress={() => setContactType('phone')}>
-          <Text style={[styles.chipText, contactType === 'phone' && { color: colors.primaryButtonText }]}>Phone</Text>
+        <Pressable
+          style={[styles.chip, contactType === 'phone' && { backgroundColor: colors.primaryButton }]}
+          onPress={() => setContactType('phone')}
+          accessibilityRole="button"
+          accessibilityLabel={Copy.groups.phone}
+        >
+          <Text style={[styles.chipText, contactType === 'phone' && { color: colors.primaryButtonText }]}>{Copy.groups.phone}</Text>
         </Pressable>
       </View>
       <FloatingLabelInput
-        label={contactType === 'email' ? 'Email' : 'Phone'}
+        label={contactType === 'email' ? Copy.groups.email : Copy.groups.phone}
         value={contactValue}
         onChangeText={setContactValue}
         onClear={() => setContactValue('')}
@@ -127,12 +141,12 @@ export default function GroupDetailScreen() {
         autoCapitalize="words"
         style={{ marginBottom: spacing.md }}
       />
-      <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }, adding && styles.buttonDisabled]} onPress={handleAdd} disabled={adding || !contactValue.trim()} accessibilityRole="button" accessibilityLabel="Add member">
-        <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{adding ? 'Adding...' : 'Add'}</Text>
+      <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }, adding && styles.buttonDisabled]} onPress={handleAdd} disabled={adding || !contactValue.trim()} accessibilityRole="button" accessibilityLabel={Copy.groups.addMember}>
+        <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{adding ? Copy.common.adding : Copy.groups.add}</Text>
       </AnimatedPressable>
-      <Text style={styles.sectionTitle}>Members ({members.length})</Text>
+      <Text style={styles.sectionTitle}>{Copy.groups.members(members.length)}</Text>
       {members.length === 0 ? (
-        <Text style={styles.body}>No members yet.</Text>
+        <Text style={styles.body}>{Copy.groups.noMembers}</Text>
       ) : (
         members.map((m) => (
           <View key={m.id} style={[styles.memberRow, { borderColor: colors.border }]}>
@@ -140,8 +154,8 @@ export default function GroupDetailScreen() {
               <Text style={styles.memberName}>{m.display_name || m.contact_value}</Text>
               <Text style={styles.memberContact}>{m.contact_value}</Text>
             </View>
-            <Pressable onPress={() => handleRemove(m.id)} accessibilityRole="button" accessibilityLabel={`Remove ${m.display_name || m.contact_value}`}>
-              <Text style={[styles.removeText, { color: colors.error }]}>Remove</Text>
+            <Pressable style={styles.removeBtn} onPress={() => handleRemove(m.id)} accessibilityRole="button" accessibilityLabel={`${Copy.groups.remove} ${m.display_name || m.contact_value}`}>
+              <Text style={[styles.removeText, { color: colors.error }]}>{Copy.groups.remove}</Text>
             </Pressable>
           </View>
         ))
@@ -159,7 +173,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: typography.h3, fontWeight: '600', marginBottom: spacing.md, marginTop: spacing.xl },
   label: { fontSize: typography.meta, fontWeight: '500', marginBottom: spacing.xs + 2 },
   row: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
-  chip: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: radius.input },
+  chip: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: radius.input, minHeight: 44, justifyContent: 'center' },
   chipText: { fontWeight: '600' },
   button: { padding: spacing.lg, borderRadius: radius.input, alignItems: 'center', marginBottom: spacing.sm },
   buttonText: { fontWeight: '600' },
@@ -170,5 +184,6 @@ const styles = StyleSheet.create({
   memberName: { fontSize: typography.body, fontWeight: '500' },
   memberContact: { fontSize: typography.microLabel + 1, opacity: 0.8 },
   removeText: { fontSize: typography.meta, fontWeight: '500' },
+  removeBtn: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.xs },
   deleteButton: { marginTop: spacing.xl, padding: spacing.md, borderRadius: radius.input, borderWidth: 1, alignItems: 'center' },
 });

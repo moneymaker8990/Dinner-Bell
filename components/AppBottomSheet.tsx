@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
   handleIndicator: {
     width: 36,
     height: 4,
-    borderRadius: 2,
+    borderRadius: radius.chip,
     opacity: 0.4,
   },
   header: {

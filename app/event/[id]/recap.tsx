@@ -139,6 +139,9 @@ export default function RecapScreen() {
           onBack={() => router.back()}
         />
         {hostName ? <Text style={styles.hostBy}>— {hostName}</Text> : null}
+        <Text style={[styles.snapshotText, { color: colors.textSecondary }]}>
+          {Copy.recap.snapshot(whoCame.length, whatWasBrought.length)}
+        </Text>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle} accessibilityRole="header">{Copy.recap.whoCame}</Text>
@@ -234,6 +237,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
     textAlign: 'center',
     marginTop: spacing.lg,
+  },
+  snapshotText: {
+    fontSize: typography.meta,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
+    opacity: 0.9,
   },
   section: { marginBottom: spacing.xl, paddingHorizontal: spacing.xl },
   sectionTitle: {

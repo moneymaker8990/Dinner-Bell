@@ -10,10 +10,11 @@ const BELL_SOUNDS: Record<string, string> = {
 const soundCache: Record<string, Audio.Sound> = {};
 
 export type BellSoundSlug = 'triangle' | 'chime' | 'gong';
+export const DEFAULT_BELL_SOUND: BellSoundSlug = 'chime';
 
 export async function playBellSound(soundSlug?: BellSoundSlug | string | null): Promise<void> {
-  const slug = soundSlug && BELL_SOUNDS[soundSlug] ? soundSlug : 'triangle';
-  const url = BELL_SOUNDS[slug] ?? BELL_SOUNDS.triangle;
+  const slug = soundSlug && BELL_SOUNDS[soundSlug] ? soundSlug : DEFAULT_BELL_SOUND;
+  const url = BELL_SOUNDS[slug] ?? BELL_SOUNDS[DEFAULT_BELL_SOUND];
   try {
     let sound = soundCache[slug];
     if (sound) {

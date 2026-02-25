@@ -9,16 +9,16 @@
 | Bring list | Realtime claiming, mark provided | Not central |
 | Invite design | Functional (link, email, SMS) | Highly customizable |
 | Payments | None | Venmo/Cash App/PayPal |
-| Discovery | Backend only (no Discover UI) | Guest discovery, mutuals |
+| Discovery | Discover tab ships; copy aligned with “List in Discover” | Guest discovery, mutuals |
 | Photos on event | DB only, no UI | Yes |
 | Drafts | Single draft restore, no list | Supported |
-| Account (email/password) | Change flows "Soon" | Full account management |
+| Account (email/password) | Change email + password supported | Full account management |
 
-## Holes to fix for credibility
+## Remaining holes to fix for credibility
 
-- Discover UI (or remove "List in Discover")
-- Change password (and ideally email)
-- Either deliver drafts or update copy
+- Drafts are currently single-draft restore only; either keep copy as "Resume draft" or add a full Drafts list.
+- Premium messaging should stay hidden or clearly marked "Coming soon" until entitlements are implemented.
+- Photos-on-event UI is still missing (DB supports it but no user-facing flow).
 
 ## What makes Dinner Bell special
 

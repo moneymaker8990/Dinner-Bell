@@ -1,7 +1,7 @@
 import { BrandLogo } from '@/components/BrandLogo';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { fontFamily, fontWeight, letterSpacing, spacing, typography } from '@/constants/Theme';
+import { fontFamily, fontWeight, letterSpacing, radius, spacing, typography } from '@/constants/Theme';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import React from 'react';
@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
     left: spacing.lg,
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: radius.card,
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',

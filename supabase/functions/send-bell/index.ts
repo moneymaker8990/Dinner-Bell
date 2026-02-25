@@ -39,7 +39,7 @@ serve(async (req) => {
           to: token,
           title: 'Dinner Bell!',
           body: message ?? 'Time to eat.',
-          data: { type: 'bell_ring', eventId, message, bellSound: event.bell_sound ?? 'triangle' },
+          data: { type: 'bell_ring', eventId, message, bellSound: event.bell_sound ?? 'chime' },
         }),
       });
     }

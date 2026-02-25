@@ -17,7 +17,7 @@ serve(async (req) => {
     const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
     for (const row of due) {
       const { data: eventRow } = row.type === 'bell' ? await supabase.from('events').select('bell_sound').eq('id', row.event_id).single() : { data: null };
-      const bellSound = (eventRow as { bell_sound?: string } | null)?.bell_sound ?? 'triangle';
+      const bellSound = (eventRow as { bell_sound?: string } | null)?.bell_sound ?? 'chime';
       const { data: guests } = await supabase
         .from('event_guests')
         .select('user_id, rsvp_status, wants_reminders')

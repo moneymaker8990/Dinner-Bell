@@ -4,7 +4,12 @@
       "Bash(dir /s \"C:\\\\Users\\\\caleb\\\\OneDrive\\\\Desktop\\\\Dinner Bell\")",
       "Bash(npx tsc --noEmit)",
       "Bash(npx expo start:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(sort:*)",
+      "Bash(head:*)",
+      "Bash(wc:*)",
+      "Bash(cd:*)",
+      "Bash(grep:*)"
     ]
   }
 }

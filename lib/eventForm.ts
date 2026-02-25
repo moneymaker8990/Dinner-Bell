@@ -35,7 +35,7 @@ export const defaultForm: CreateEventForm = {
   description: '',
   startTime: new Date().toISOString().slice(0, 16),
   bellTime: new Date().toISOString().slice(0, 16),
-  bellSound: 'triangle',
+  bellSound: 'chime',
   endTime: '',
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   addressLine1: '',

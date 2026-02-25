@@ -52,6 +52,13 @@ A cross-platform (iOS, Android, PWA) social hosting app for dinner invites: menu
 
 - `docs/release-checklist.md` — final QA and release verification.
 - `docs/app-store-play-submission.md` — App Store Connect and Play Console submission steps.
+- `docs/SUBMISSION_HANDOFF.md` — what’s done in repo and exact build/submit steps to run locally.
+- `docs/STORE_ASSETS_AND_ICONS.md` — icon and graphic requirements (in-repo + App Store + Play).
+- `docs/SUBMISSION_PREREQUISITES.md` — developer accounts, legal hosting, code signing, push credentials, real device testing.
+- `docs/PRE_SUBMIT_CHECKLIST.md` — ordered go/no-go checklist for submission week.
+- `docs/PRIVACY_DATA_DISCLOSURE_MAP.md` — App Privacy / Data Safety disclosure mapping.
+- `docs/REVIEWER_APP_ACCESS.md` — reviewer login instructions template.
+- `docs/ROLLBACK_CRITERIA.md` — rollout halt and rollback thresholds.
 - `docs/positioning-and-gaps.md` — product positioning summary, gaps, and differentiation vs Partiful.
 
 ## Definition of done

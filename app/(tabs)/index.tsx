@@ -20,6 +20,7 @@ import { trackScreenViewed } from '@/lib/analytics';
 import { supabase } from '@/lib/supabase';
 import type { EventWithDetails } from '@/types/events';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Link, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -45,6 +46,8 @@ function shortLocation(e: EventWithDetails): string | null {
   return null;
 }
 
+const CREATE_HINT_KEY = 'has_seen_create_hint_v1';
+
 export default function HomeScreen() {
   const router = useRouter();
   const { user, isSignedIn } = useAuth();
@@ -55,6 +58,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showCreateHint, setShowCreateHint] = useState(false);
 
   // FAB spring animation
   const fabScale = useSharedValue(0);
@@ -121,6 +125,18 @@ export default function HomeScreen() {
     fetchNextEvent();
   }, [user?.id, fetchNextEvent]);
 
+  useEffect(() => {
+    if (!isSignedIn) return;
+    AsyncStorage.getItem(CREATE_HINT_KEY).then((value) => {
+      if (!value) setShowCreateHint(true);
+    });
+  }, [isSignedIn]);
+
+  const dismissCreateHint = useCallback(() => {
+    setShowCreateHint(false);
+    AsyncStorage.setItem(CREATE_HINT_KEY, 'true');
+  }, []);
+
   // FAB entrance spring
   useEffect(() => {
     if (isSignedIn && !reduceMotion) {
@@ -176,7 +192,7 @@ export default function HomeScreen() {
           ) : undefined
         }
       >
-        {/* Premium gradient hero — extra top padding so the bell icon is not cut off */}
+        {/* Branded gradient hero — extra top padding so the bell icon is not cut off */}
         <GradientHeader height={260}>
           <View style={[styles.heroInner, styles.heroInnerTopPadding]}>
             <View style={styles.heroIconGlow}>
@@ -199,6 +215,14 @@ export default function HomeScreen() {
           <Link href="/create" asChild>
             <PrimaryButton style={styles.createBtn}>Create Dinner</PrimaryButton>
           </Link>
+          {isSignedIn && !loading && !nextEvent && showCreateHint ? (
+            <View style={[styles.createHint, { borderColor: colors.border, backgroundColor: colors.card }]}>
+              <Text style={[styles.createHintText, { color: colors.textSecondary }]}>
+                Start with one dinner, invite your people, then ring the bell when it is ready.
+              </Text>
+              <SecondaryButton onPress={dismissCreateHint}>Got it</SecondaryButton>
+            </View>
+          ) : null}
 
           {/* Content */}
           {loading ? (
@@ -335,7 +359,7 @@ const styles = StyleSheet.create({
   },
   heroIconGlow: {
     backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 48,
+    borderRadius: radius.chip,
     padding: spacing.md,
   },
   heroTitle: {
@@ -369,6 +393,17 @@ const styles = StyleSheet.create({
   },
   createBtn: {
     marginBottom: spacing.xxl,
+  },
+  createHint: {
+    borderWidth: 1,
+    borderRadius: radius.card,
+    padding: spacing.md,
+    marginBottom: spacing.xl,
+    gap: spacing.sm,
+  },
+  createHintText: {
+    fontSize: typography.meta,
+    lineHeight: lineHeight.meta,
   },
   signInCard: {
     marginBottom: spacing.xl,

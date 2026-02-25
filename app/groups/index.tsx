@@ -6,6 +6,7 @@ import { SkeletonCardList } from '@/components/SkeletonLoader';
 import { Text, View } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { Copy } from '@/constants/Copy';
 import { radius, spacing, typography } from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCreateGroup, useGroups } from '@/hooks/useGroups';
@@ -38,9 +39,9 @@ export default function GroupsScreen() {
   if (!user) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.body}>Sign in to manage guest groups.</Text>
+        <Text style={styles.body}>{Copy.groups.signInPrompt}</Text>
         <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push('/sign-in')} accessibilityRole="button" accessibilityLabel="Sign in to manage groups">
-          <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>Sign in</Text>
+        <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.common.signIn}</Text>
         </AnimatedPressable>
       </View>
     );
@@ -58,6 +59,9 @@ export default function GroupsScreen() {
     return (
       <View style={styles.centered}>
         <Text style={[styles.body, { color: colors.warn }]}>{error.message}</Text>
+        <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => refetch()} accessibilityRole="button" accessibilityLabel="Retry loading groups">
+          <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.offline.retry}</Text>
+        </AnimatedPressable>
       </View>
     );
   }
@@ -65,7 +69,7 @@ export default function GroupsScreen() {
   return (
     <KeyboardAwareScrollView style={styles.container} contentContainerStyle={styles.content}>
       <FloatingLabelInput
-        label="New group"
+        label={Copy.groups.newGroup}
         value={newName}
         onChangeText={setNewName}
         onClear={() => setNewName('')}
@@ -74,13 +78,13 @@ export default function GroupsScreen() {
         style={{ marginBottom: spacing.md }}
       />
       <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }, createGroupMutation.isPending && styles.buttonDisabled]} onPress={handleCreate} disabled={createGroupMutation.isPending || !newName.trim()} accessibilityRole="button" accessibilityLabel="Create group">
-        <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{createGroupMutation.isPending ? 'Creating...' : 'Create group'}</Text>
+        <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{createGroupMutation.isPending ? Copy.groups.creatingGroup : Copy.groups.createGroup}</Text>
       </AnimatedPressable>
-      <Text style={styles.sectionTitle} accessibilityRole="header">Your groups</Text>
+      <Text style={styles.sectionTitle} accessibilityRole="header">{Copy.groups.yourGroups}</Text>
       {groups.length === 0 ? (
         <EmptyState
-          headline="No groups yet"
-          body="Create a group to quickly invite the same people to future events."
+          headline={Copy.groups.noGroups}
+          body={Copy.groups.noGroups}
           primaryCta={<></>}
         />
       ) : (

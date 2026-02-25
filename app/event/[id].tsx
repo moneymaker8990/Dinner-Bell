@@ -4,6 +4,7 @@ import { AppBottomSheet } from '@/components/AppBottomSheet';
 import { Avatar } from '@/components/Avatar';
 import { BringListItem } from '@/components/BringListItem';
 import { Card, CardBody } from '@/components/Card';
+import { CelebrationOverlay } from '@/components/CelebrationOverlay';
 import { FloatingLabelInput } from '@/components/FloatingLabelInput';
 import { GradientHeader } from '@/components/GradientHeader';
 import { ProgressBar } from '@/components/ProgressBar';
@@ -39,7 +40,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, TextInput } from 'react-native';
+import { Alert, FlatList, Linking, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 function initials(name: string): string {
@@ -115,6 +116,9 @@ export default function EventDetailScreen() {
   const [messages, setMessages] = useState<{ id: string; user_id: string; body: string; created_at: string }[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [providedCelebrationVisible, setProvidedCelebrationVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const bringListCompleteShown = useRef(false);
   const inviteSheetRef = useRef<GorhomBottomSheet>(null);
   const chatSheetRef = useRef<GorhomBottomSheet>(null);
@@ -127,7 +131,7 @@ export default function EventDetailScreen() {
   const invalidateEvent = useInvalidateEvent();
 
   const toast = useToast();
-  const guestById = useCallback(() => {
+  const guestById = useMemo(() => {
     const map = new Map<string, EventGuest>();
     guests.forEach((g) => map.set(g.id, g));
     return map;
@@ -259,7 +263,11 @@ export default function EventDetailScreen() {
       setLoading(false);
     };
     fetch();
-  }, [id, user?.id ?? null, urlGuestId, eventData]);
+  }, [id, user?.id ?? null, urlGuestId, eventData, reloadToken]);
+
+  useEffect(() => {
+    if (!loading) setRefreshing(false);
+  }, [loading]);
 
   useEffect(() => {
     if (!id || id === '__demo__') return;
@@ -295,7 +303,7 @@ export default function EventDetailScreen() {
     if (claimedOrProvided === bringItems.length) {
       bringListCompleteShown.current = true;
       hapticSuccess();
-      toast.show('Bring list complete!');
+      toast.show(Copy.toast.bringListComplete);
     }
   }, [bringItems, toast]);
 
@@ -358,7 +366,7 @@ export default function EventDetailScreen() {
     if (!event?.invite_token) return;
     const url = buildInviteUrl(id, event.invite_token);
     try {
-      await Share.share({ message: `You're invited to ${event.title}. RSVP: ${url}`, url });
+      await Share.share({ message: Copy.event.inviteShareMessage(event.title, url), url });
     } catch (_) {}
   };
 
@@ -383,7 +391,18 @@ export default function EventDetailScreen() {
   };
 
   const handleMarkProvided = async (itemId: string) => {
-    await supabase.from('bring_items').update({ status: 'provided' }).eq('id', itemId);
+    const { error: updateError } = await supabase
+      .from('bring_items')
+      .update({ status: 'provided' })
+      .eq('id', itemId);
+    if (updateError) {
+      toast.show(Copy.validation.genericError);
+      return;
+    }
+    refreshBringItems();
+    hapticSuccess();
+    toast.show(Copy.toast.itemMarkedProvided);
+    setProvidedCelebrationVisible(true);
   };
 
   const refreshBringItems = () => {
@@ -394,12 +413,12 @@ export default function EventDetailScreen() {
   const handleCancelEvent = () => {
     if (!id || !event || !isHost) return;
     Alert.alert(
-      'Cancel Event',
-      'This will cancel the event for all guests. This cannot be undone.',
+      Copy.event.cancelEventTitle,
+      Copy.event.cancelEventBody,
       [
-        { text: 'Keep Event', style: 'cancel' },
+        { text: Copy.event.keepEvent, style: 'cancel' },
         {
-          text: 'Cancel Event',
+          text: Copy.event.cancelEventTitle,
           style: 'destructive',
           onPress: () => {
             supabase.from('events').update({ is_cancelled: true }).eq('id', id).eq('host_user_id', user!.id).then(({ error }) => {
@@ -413,6 +432,14 @@ export default function EventDetailScreen() {
         },
       ]
     );
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    setLoading(true);
+    setError(null);
+    if (id && id !== '__demo__') invalidateEvent(id);
+    setReloadToken((v) => v + 1);
   };
 
   const openInviteModal = () => {
@@ -578,6 +605,14 @@ export default function EventDetailScreen() {
               <Ionicons name="alert-circle-outline" size={22} color={colors.error} />
               <Text style={[styles.errorTitle, { color: colors.textPrimary }]} accessibilityRole="header">{error ?? Copy.event.notFound}</Text>
               <Text style={[styles.errorBody, { color: colors.textSecondary }]}>{Copy.event.notFoundBody}</Text>
+              <AnimatedPressable
+                style={[styles.button, { backgroundColor: colors.primaryButton }]}
+                onPress={handleRefresh}
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading event"
+              >
+                <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.offline.retry}</Text>
+              </AnimatedPressable>
             </View>
           </CardBody>
         </Card>
@@ -586,7 +621,18 @@ export default function EventDetailScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+    <View style={styles.container}>
+      <CelebrationOverlay
+        visible={providedCelebrationVisible}
+        headline="Marked provided"
+        subtitle="Bring list updated"
+        displayDuration={1200}
+        onFinish={() => setProvidedCelebrationVisible(false)}
+      />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.tint} />}
+      >
       <GradientHeader
         title={event.title}
         subtitle={hostName ? Copy.event.hostedBy(hostName) : undefined}
@@ -597,7 +643,7 @@ export default function EventDetailScreen() {
       >
         <AnimatedCountdown bellTime={event.bell_time} compact />
       </GradientHeader>
-      <Animated.View entering={FadeInDown.duration(400)} style={styles.content}>
+      <Animated.View entering={reduceMotion ? undefined : FadeInDown.duration(400)} style={styles.content}>
       {isInEventWindow && (
         <View style={[styles.inEventBanner, { backgroundColor: colors.tintFaint, borderColor: colors.tintBorder }]}>
           <Text style={styles.inEventTitle} accessibilityRole="header">{isPastBell ? Copy.event.dinnerIsOn : Copy.event.bellIn(formatCountdown(event.bell_time))}</Text>
@@ -621,12 +667,12 @@ export default function EventDetailScreen() {
           <AnimatedPressable variant="primary" enableHaptics style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={() => router.push(`/event/${id}/edit`)} accessibilityRole="button" accessibilityLabel="Edit event">
             <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.event.editEvent}</Text>
           </AnimatedPressable>
-          <AnimatedPressable style={styles.buttonSecondary} onPress={openInviteModal} accessibilityRole="button" accessibilityLabel="Invite more">
-            <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Invite more</Text>
+          <AnimatedPressable style={styles.buttonSecondary} onPress={openInviteModal} accessibilityRole="button" accessibilityLabel={Copy.event.inviteMore}>
+            <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.event.inviteMore}</Text>
           </AnimatedPressable>
           {!isWeb && (
             <AnimatedPressable style={styles.buttonSecondary} onPress={() => { contactsPicker.openPicker(); contactsSheetRef.current?.snapToIndex(0); }} accessibilityRole="button" accessibilityLabel="Add from contacts">
-              <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Add from contacts</Text>
+              <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>{Copy.common.addFromContacts}</Text>
             </AnimatedPressable>
           )}
           {isHost && (
@@ -751,7 +797,7 @@ export default function EventDetailScreen() {
                       eventId={id}
                       guestId={guestId}
                       guestName={guestName}
-                      claimedByName={item.claimed_by_guest_id ? guestById().get(item.claimed_by_guest_id)?.guest_name : null}
+                      claimedByName={item.claimed_by_guest_id ? guestById.get(item.claimed_by_guest_id)?.guest_name : null}
                       onClaimed={refreshBringItems}
                     />
                     {isHost && item.status === 'claimed' && (
@@ -826,14 +872,14 @@ export default function EventDetailScreen() {
         </View>
       )}
       {isEventOver && (
-        <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }, { marginBottom: spacing.lg }]} onPress={() => router.push(`/event/${id}/recap`)} accessibilityRole="button" accessibilityLabel="View recap">
-          <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>View recap</Text>
+          <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }, { marginBottom: spacing.lg }]} onPress={() => router.push(`/event/${id}/recap`)} accessibilityRole="button" accessibilityLabel={Copy.event.viewRecap}>
+          <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.event.viewRecap}</Text>
         </AnimatedPressable>
       )}
       {!isHost && (
         <View style={styles.guestShareRow}>
           <AnimatedPressable style={[styles.button, { backgroundColor: colors.primaryButton }]} onPress={handleShare} accessibilityRole="button" accessibilityLabel="Share event">
-            <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>Share link</Text>
+            <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.common.shareLink}</Text>
           </AnimatedPressable>
           <AnimatedPressable style={styles.buttonSecondary} onPress={handleCopyInviteLink} accessibilityRole="button" accessibilityLabel="Copy invite link">
             <Text style={[styles.buttonSecondaryText, { color: colors.tint }]}>Copy invite link</Text>
@@ -1028,7 +1074,8 @@ export default function EventDetailScreen() {
         </AppBottomSheet>
       )}
       </Animated.View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1092,7 +1139,7 @@ const styles = StyleSheet.create({
   buttonSecondary: { padding: spacing.lg, alignItems: 'center', marginTop: spacing.xs },
   buttonSecondaryText: { fontWeight: '600' },
   guestShareRow: { marginTop: spacing.sm },
-  smallBtn: { padding: spacing.sm, alignItems: 'flex-start', marginTop: spacing.xs },
+  smallBtn: { padding: spacing.sm, minHeight: 44, justifyContent: 'center', alignItems: 'flex-start', marginTop: spacing.xs },
   smallBtnText: { fontSize: typography.meta, fontWeight: '500' },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
   modalContent: { borderRadius: spacing.lg, padding: spacing.xl, width: '100%', maxWidth: 340 },

@@ -20,13 +20,15 @@ import { useToast } from '@/contexts/ToastContext';
 import { useProfile } from '@/hooks/useProfile';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { trackProfileUpdated, trackSignOut } from '@/lib/analytics';
+import { hapticSuccess } from '@/lib/haptics';
 import { normalizePhoneForLookup } from '@/lib/invite';
 import { supabase } from '@/lib/supabase';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { type Href, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch } from 'react-native';
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Switch } from 'react-native';
 import Animated, { FadeInDown, runOnJS, useAnimatedReaction, useSharedValue, withTiming } from 'react-native-reanimated';
 
 function initialsFromEmail(email: string | undefined): string {
@@ -41,6 +43,8 @@ function displayName(email: string | undefined): string {
   const part = email.split('@')[0];
   return part.charAt(0).toUpperCase() + part.slice(1);
 }
+
+const PROFILE_DEFAULTS_KEY = 'profile_ui_defaults_v1';
 
 /** Animated count-up stat using Reanimated shared values. */
 function AnimatedStat({ value, style }: { value: number; style?: any }) {
@@ -82,7 +86,7 @@ export default function ProfileScreen() {
   const [showRsvpToOthers, setShowRsvpToOthers] = useState(true);
 
   // Stats (via React Query)
-  const { data: profileData, isLoading: statsLoading, error: profileError } = useProfile(user?.id);
+  const { data: profileData, isLoading: statsLoading, error: profileError, refetch: refetchProfile } = useProfile(user?.id);
   const statsError = profileError?.message ?? null;
   const hostedCount = profileData?.stats.hosted ?? 0;
   const attendedCount = profileData?.stats.attended ?? 0;
@@ -97,6 +101,7 @@ export default function ProfileScreen() {
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [accountSaving, setAccountSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const privacyPolicyUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL ?? 'https://dinner-bell-app.vercel.app/privacy';
   const termsUrl = process.env.EXPO_PUBLIC_TERMS_URL ?? 'https://dinner-bell-app.vercel.app/terms';
   const supportUrl = process.env.EXPO_PUBLIC_SUPPORT_URL ?? 'mailto:support@dinnerbell.app';
@@ -110,6 +115,36 @@ export default function ProfileScreen() {
     };
     fetchProfile();
   }, [user?.id]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(PROFILE_DEFAULTS_KEY).then((stored) => {
+      if (!stored) return;
+      try {
+        const parsed = JSON.parse(stored) as {
+          reminderMins?: number;
+          bellSoundOn?: boolean;
+          vibrateOnBell?: boolean;
+          showRsvpToOthers?: boolean;
+        };
+        if (typeof parsed.reminderMins === 'number') setReminderMins(parsed.reminderMins);
+        if (typeof parsed.bellSoundOn === 'boolean') setBellSoundOn(parsed.bellSoundOn);
+        if (typeof parsed.vibrateOnBell === 'boolean') setVibrateOnBell(parsed.vibrateOnBell);
+        if (typeof parsed.showRsvpToOthers === 'boolean') setShowRsvpToOthers(parsed.showRsvpToOthers);
+      } catch {
+        // Ignore invalid cache entries.
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    const next = JSON.stringify({
+      reminderMins,
+      bellSoundOn,
+      vibrateOnBell,
+      showRsvpToOthers,
+    });
+    AsyncStorage.setItem(PROFILE_DEFAULTS_KEY, next);
+  }, [reminderMins, bellSoundOn, vibrateOnBell, showRsvpToOthers]);
 
   const openExternalLink = async (url: string) => {
     try {
@@ -171,12 +206,12 @@ export default function ProfileScreen() {
 
   const handleSignOut = () => {
     Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
+      Copy.profile.signOutTitle,
+      Copy.profile.signOutBody,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: Copy.common.cancel, style: 'cancel' },
         {
-          text: 'Sign Out',
+          text: Copy.profile.signOutTitle,
           style: 'destructive',
           onPress: async () => {
             trackSignOut();
@@ -204,6 +239,7 @@ export default function ProfileScreen() {
     if (error) toast.show(Copy.toast.phoneSaveFailed);
     else {
       trackProfileUpdated('phone');
+      hapticSuccess();
       toast.show(normalized ? Copy.toast.phoneSaved : Copy.toast.phoneCleared);
     }
   };
@@ -224,6 +260,7 @@ export default function ProfileScreen() {
       return;
     }
     trackProfileUpdated('email');
+    hapticSuccess();
     setNewEmail('');
     setShowEmailForm(false);
     toast.show(Copy.toast.emailUpdateSent);
@@ -244,9 +281,17 @@ export default function ProfileScreen() {
       return;
     }
     trackProfileUpdated('password');
+    hapticSuccess();
     setNewPassword('');
     setShowPasswordForm(false);
     toast.show(Copy.toast.passwordUpdated);
+  };
+
+  const handleRefresh = async () => {
+    if (!user) return;
+    setRefreshing(true);
+    await refetchProfile();
+    setRefreshing(false);
   };
 
 
@@ -256,7 +301,14 @@ export default function ProfileScreen() {
 
   return (
     <AppShell>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          isSignedIn ? <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.tint} /> : undefined
+        }
+      >
         <GradientHeader
           title={isSignedIn ? displayName(user?.email) : Copy.profile.title}
           subtitle={subtitle}
@@ -339,31 +391,36 @@ export default function ProfileScreen() {
                     ) : (
                       <AnimatedStat value={claimedCount} style={[styles.statValue, { color: colors.textPrimary }]} />
                     )}
-                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Items brought</Text>
+                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{Copy.profile.claimed}</Text>
                   </Animated.View>
                 </Animated.View>
                 {statsError ? (
-                  <Text style={[styles.statsErrorText, { color: colors.textSecondary }]}>
-                    {statsError}
-                  </Text>
+                  <View style={styles.statsErrorWrap}>
+                    <Text style={[styles.statsErrorText, { color: colors.textSecondary }]}>
+                      {statsError}
+                    </Text>
+                    <GhostButton onPress={() => refetchProfile()} textStyle={{ color: colors.tint }}>
+                      {Copy.profile.statsRetry}
+                    </GhostButton>
+                  </View>
                 ) : null}
                 {(hostedCount >= 1 || claimedCount >= 10 || attendedCount >= 3) && (
                   <View style={[styles.badgesRow, { borderTopColor: colors.border }]}>
-                    <Text style={[styles.badgesLabel, { color: colors.textSecondary }]}>Badges</Text>
+                    <Text style={[styles.badgesLabel, { color: colors.textSecondary }]}>{Copy.profile.badges}</Text>
                     <View style={styles.badgeChips}>
                       {hostedCount >= 1 && (
                         <View style={[styles.badgeChip, { backgroundColor: colors.tintSoft, borderColor: colors.tintMuted }]}>
-                          <Text style={[styles.badgeChipText, { color: colors.tint }]}>Dinner host</Text>
+                          <Text style={[styles.badgeChipText, { color: colors.tint }]}>{Copy.profile.badgeHost}</Text>
                         </View>
                       )}
                       {claimedCount >= 10 && (
                         <View style={[styles.badgeChip, { backgroundColor: colors.accentSageFaint, borderColor: colors.accentSageBorder }]}>
-                          <Text style={[styles.badgeChipText, { color: colors.accentSage }]}>Super bringer</Text>
+                          <Text style={[styles.badgeChipText, { color: colors.accentSage }]}>{Copy.profile.badgeSuperBringer}</Text>
                         </View>
                       )}
                       {attendedCount >= 3 && (
                         <View style={[styles.badgeChip, { backgroundColor: colors.border }]}>
-                          <Text style={[styles.badgeChipText, { color: colors.textSecondary }]}>Regular</Text>
+                          <Text style={[styles.badgeChipText, { color: colors.textSecondary }]}>{Copy.profile.badgeRegular}</Text>
                         </View>
                       )}
                     </View>
@@ -608,7 +665,7 @@ const styles = StyleSheet.create({
     right: 0,
     width: 26,
     height: 26,
-    borderRadius: 13,
+    borderRadius: radius.chip,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -656,6 +713,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.sm,
     fontStyle: 'italic',
+  },
+  statsErrorWrap: {
+    alignItems: 'center',
   },
   statDivider: {
     width: 1,

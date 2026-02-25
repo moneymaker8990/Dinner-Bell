@@ -20,7 +20,7 @@ import { buildInviteUrl } from '@/lib/urls';
 import type { RsvpStatus } from '@/types/database';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Share, StyleSheet, Switch } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
@@ -73,24 +73,28 @@ export default function InviteScreen() {
   const oneTapDone = useRef(false);
   const reduceMotion = useReducedMotion();
 
+  const loadInvitePreview = useCallback(async () => {
+    if (!id || !token) {
+      setError(Copy.invite.invalidInviteLink);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const p = await getInvitePreview(id, token);
+    setPreview(p ?? null);
+    setError(p ? null : Copy.invite.inviteInvalidOrExpired);
+    setLoading(false);
+    if (p) trackInviteOpened(id, 'direct_link');
+  }, [id, token]);
+
   const event = preview?.event ?? null;
   const capacity = (event as EventByInvite & { capacity?: number | null })?.capacity;
   const guestCount = preview?.guest_count ?? 0;
   const isEventFull = capacity != null && guestCount >= capacity;
 
   useEffect(() => {
-    if (!id || !token) {
-      setError('Invalid invite link');
-      setLoading(false);
-      return;
-    }
-    getInvitePreview(id, token).then((p) => {
-      setPreview(p ?? null);
-      setError(p ? null : 'Invite invalid or expired');
-      setLoading(false);
-      if (p) trackInviteOpened(id, 'direct_link');
-    });
-  }, [id, token]);
+    loadInvitePreview();
+  }, [loadInvitePreview]);
 
   useEffect(() => {
     if (contactParam) setGuestContact(contactParam);
@@ -114,7 +118,7 @@ export default function InviteScreen() {
         notifyHostRsvpChange(id, 'Guest').catch(() => {});
         router.replace(`/event/${id}?guestId=${result.data}`);
       } else {
-        setActionError(result.error ?? 'Unable to submit RSVP right now.');
+        setActionError(result.error ?? Copy.invite.unableToSubmitRsvp);
       }
     });
   }, [preview?.event, id, token, action, contactParam, router]);
@@ -137,7 +141,7 @@ export default function InviteScreen() {
         router.push(`/event/${id}?guestId=${result.data}`);
       }
     } else {
-      setActionError(result.error ?? 'Unable to submit RSVP right now.');
+      setActionError(result.error ?? Copy.invite.unableToSubmitRsvp);
     }
   };
 
@@ -145,7 +149,7 @@ export default function InviteScreen() {
     if (!event) return;
     trackShareInitiated(id!, 'invite_page');
     const url = buildInviteUrl(id!, token);
-    await Share.share({ message: `You're invited to ${event.title}. RSVP: ${url}`, url });
+    await Share.share({ message: Copy.event.inviteShareMessage(event.title, url), url });
   };
 
   const handleJoinWaitlist = async () => {
@@ -164,7 +168,7 @@ export default function InviteScreen() {
       trackWaitlistJoined(id);
       setWaitlistJoined(true);
     } else {
-      setActionError('Unable to join the waitlist right now. Please try again.');
+      setActionError(Copy.invite.unableToJoinWaitlist);
     }
   };
 
@@ -186,7 +190,17 @@ export default function InviteScreen() {
             <View style={{ alignItems: 'center' }}>
               <Ionicons name="alert-circle-outline" size={22} color={colors.error} />
               <Text style={[styles.errorTitle, { color: colors.textPrimary }]} accessibilityRole="header">{Copy.invite.invalidInvite}</Text>
-              <Text style={[styles.errorBody, { color: colors.textSecondary }]}>Check your link or ask the host for a new invite.</Text>
+              <Text style={[styles.errorBody, { color: colors.textSecondary }]}>{Copy.invite.checkLink}</Text>
+              <AnimatedPressable
+                variant="primary"
+                enableHaptics
+                style={[styles.button, { backgroundColor: colors.primaryButton }]}
+                onPress={loadInvitePreview}
+                accessibilityRole="button"
+                accessibilityLabel="Try loading invite again"
+              >
+                <Text style={[styles.buttonText, { color: colors.primaryButtonText }]}>{Copy.common.tryAgain}</Text>
+              </AnimatedPressable>
             </View>
           </CardBody>
         </Card>
@@ -231,7 +245,7 @@ export default function InviteScreen() {
   return (
     <View style={styles.container}>
       <GradientHeader
-        title="You're invited!"
+        title={Copy.invite.title}
         subtitle={event.title}
         height={200}
         onBack={() => router.canGoBack() && router.back()}

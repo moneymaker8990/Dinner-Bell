@@ -47,6 +47,11 @@ const STEPS = [
 const TOTAL_STEPS = 6;
 const BRING_CATEGORIES: BringItemCategory[] = ['drink', 'side', 'dessert', 'supplies', 'other'];
 const DRAFT_KEY = 'dinner_bell_create_draft';
+const INVITE_NOTE_TEMPLATES = [
+  Copy.create.inviteNoteTemplateFriendly,
+  Copy.create.inviteNoteTemplatePotluck,
+  Copy.create.inviteNoteTemplateTiming,
+] as const;
 
 function fullAddressFromForm(form: CreateEventForm): string {
   const parts = [form.addressLine1, form.addressLine2, form.city, form.state, form.postalCode, form.country].filter(Boolean);
@@ -194,7 +199,7 @@ export default function CreateDinnerScreen() {
         description: e.description ?? '',
         startTime,
         bellTime,
-        bellSound: (e.bell_sound as CreateEventForm['bellSound']) ?? 'triangle',
+        bellSound: (e.bell_sound as CreateEventForm['bellSound']) ?? 'chime',
         endTime: '',
         timezone: e.timezone ?? defaultForm.timezone,
         addressLine1: e.address_line1 ?? '',
@@ -401,7 +406,7 @@ export default function CreateDinnerScreen() {
         p_description: form.description || null,
         p_start_time: form.startTime,
         p_bell_time: form.bellTime,
-        p_bell_sound: form.bellSound || 'triangle',
+        p_bell_sound: form.bellSound || 'chime',
         p_end_time: form.endTime || null,
         p_timezone: form.timezone,
         p_address_line1: form.addressLine1 || 'TBD',
@@ -639,7 +644,7 @@ export default function CreateDinnerScreen() {
         </View>
       )}
 
-      {/* Premium progress bar */}
+      {/* Step progress bar */}
       <ProgressBar progress={step / (TOTAL_STEPS - 1)} label={`Step ${step + 1} of ${TOTAL_STEPS}`} height={4} />
       <Text style={[styles.stepTitle, { color: colors.textPrimary }]} accessibilityRole="header">{STEPS[step]}</Text>
 
@@ -1042,6 +1047,21 @@ export default function CreateDinnerScreen() {
       {step === 4 && (
         <Animated.View entering={FadeInRight.duration(300)} exiting={FadeOutLeft.duration(200)}>
           <View style={styles.stepContentWrap}>
+          <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>{Copy.create.inviteNoteTemplates}</Text>
+          <View style={styles.quickAddRow}>
+            {INVITE_NOTE_TEMPLATES.map((template) => (
+              <Pressable
+                key={template}
+                style={[styles.quickAddChip, { borderColor: colors.inputBorder }]}
+                onPress={() => updateForm({ noteToGuests: template })}
+                accessibilityRole="button"
+                accessibilityLabel={`Use note template: ${template}`}>
+                <Text style={[styles.quickAddChipText, { color: colors.tint }]} numberOfLines={2}>
+                  {template}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
           <FloatingLabelInput
             label={Copy.placeholder.noteToGuests}
             value={form.noteToGuests}

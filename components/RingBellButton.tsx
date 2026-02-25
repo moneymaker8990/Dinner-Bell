@@ -2,6 +2,7 @@ import { BrandLogo } from '@/components/BrandLogo';
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { Copy } from '@/constants/Copy';
 import { radius, spacing, typography } from '@/constants/Theme';
 import { trackBellTriggered } from '@/lib/analytics';
 import { hapticBell } from '@/lib/haptics';
@@ -25,7 +26,7 @@ export function RingBellButton({ eventId, bellSound }: RingBellButtonProps) {
   const colors = Colors[colorScheme];
   const [lastRingAt, setLastRingAt] = useState<number>(0);
   const [tick, setTick] = useState(0);
-  const defaultMessage = 'Food is on the table!';
+  const defaultMessage = Copy.event.defaultBellMessage;
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY(eventId)).then((v) => {
@@ -72,6 +73,7 @@ export function RingBellButton({ eventId, bellSound }: RingBellButtonProps) {
       disabled={cooldownActive}
       accessibilityRole="button"
       accessibilityLabel={cooldownActive ? `Ring again in ${cooldownSec} seconds` : 'Ring dinner bell'}
+      accessibilityHint={cooldownActive ? 'Wait for cooldown to finish before ringing again' : 'Sends dinner bell notifications to guests'}
     >
       <View style={styles.contentRow}>
         <BrandLogo size={20} variant={cooldownActive ? 'muted' : 'primary'} />
